@@ -1,10 +1,8 @@
 import pytest
-from pathlib import Path
 from kingshot_sim.webui import persistence as ps
-from kingshot_sim.io_pkg.rosters import AccountRoster
+from kingshot_sim.io_pkg.rosters import AccountRoster, roster_to_json
 from kingshot_sim.benchmark.runner import HeroBuild
-from kingshot_sim.config.fighter import BonusVector, HeroGearPiece
-from kingshot_sim.config.buffs import Buffs
+from kingshot_sim.config.fighter import BonusVector
 
 
 def test_persistence_roster_roundtrip(tmp_path, monkeypatch):
@@ -83,3 +81,33 @@ def test_persistence_load_nonexistent_raises(tmp_path, monkeypatch):
 
     with pytest.raises(FileNotFoundError):
         ps.load_roster("NonExistentRoster")
+
+
+def test_persistence_import_roster_blob(tmp_path, monkeypatch):
+    monkeypatch.setattr(ps, "_ROSTERS_DIR", tmp_path / "rosters")
+    monkeypatch.setattr(ps, "_use_session_backend", lambda: False)
+
+    # 1. Test with dict payload
+    dict_payload = {
+        "version": 2,
+        "format": "ksbattlehelper-roster",
+        "name": "DictRoster",
+        "generation": 8,
+        "owned_heroes": {"Inf": ["Eric"]},
+    }
+    ps.import_roster_blob("DictRoster", dict_payload)
+    assert "DictRoster" in ps.list_rosters()
+    loaded_dict = ps.load_roster("DictRoster")
+    assert loaded_dict.name == "DictRoster"
+    assert loaded_dict.generation == 8
+    assert loaded_dict.owned_heroes == {"Inf": ["Eric"]}
+
+    # 2. Test with json string payload
+    r = AccountRoster(name="JsonRoster", generation=7, owned_heroes={"Cav": ["Margot"]})
+    json_payload = roster_to_json(r)
+    ps.import_roster_blob("JsonRoster", json_payload)
+    assert "JsonRoster" in ps.list_rosters()
+    loaded_json = ps.load_roster("JsonRoster")
+    assert loaded_json.name == "JsonRoster"
+    assert loaded_json.generation == 7
+    assert loaded_json.owned_heroes == {"Cav": ["Margot"]}

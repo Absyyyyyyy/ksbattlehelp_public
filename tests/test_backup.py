@@ -1,6 +1,3 @@
-import pytest
-import json
-from pathlib import Path
 from kingshot_sim.webui import persistence as ps
 from kingshot_sim.io_pkg import backup
 from kingshot_sim.io_pkg.rosters import AccountRoster
@@ -29,7 +26,7 @@ def test_backup_restore_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(ps, "_use_session_backend", lambda: False)
 
     r = AccountRoster(name="RestoreMe", generation=8, owned_heroes={"Inf": ["Eric"]})
-    saved = ps.save_roster(r, "RestoreMe")
+    ps.save_roster(r, "RestoreMe")
 
     blob = backup.make_backup_blob()
     assert '"RestoreMe"' in blob
