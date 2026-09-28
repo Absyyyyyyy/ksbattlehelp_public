@@ -1,3 +1,4 @@
+from pathlib import Path
 import streamlit as st
 from kingshot_sim.benchmark.runner import HeroBuild
 from kingshot_sim.io_pkg.rosters import BenchmarkRoster, roster_to_json, roster_from_json
@@ -7,6 +8,8 @@ from kingshot_sim.webui.tabs.benchmark import (
     _extract_roster_from_session,
     _load_roster_into_session,
 )
+
+_RUN_APP_PATH = str(Path(__file__).resolve().parent.parent / "run_app.py")
 
 
 def test_load_roster_into_session():
@@ -266,4 +269,83 @@ render()
     assert not at.exception
     assert at.session_state["_bm_active_roster"] == "[Custom / Unsaved]"
     assert "RosterToDelete" not in ps.list_rosters()
+
+
+def test_generation_slider_preserves_higher_gen_hero_apptest():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file(_RUN_APP_PATH)
+    at.run()
+    assert not at.exception
+
+    # 1. Verify initial slider is at MAX_GENERATION (Gen 7) and Charles is owned
+    assert at.select_slider(key="_bm_gen").value == 7
+    assert "Charles" in at.multiselect(key="_bm_own_Inf").value
+
+    # 2. Customize Charles: 4 stars, 2 sub-tiers, widget 7
+    at.number_input(key="_bm_star_Charles").set_value(4).run()
+    assert not at.exception
+    at.number_input(key="_bm_tier_Charles").set_value(2)
+    at.slider(key="_bm_wl_Charles").set_value(7).run()
+    assert not at.exception
+
+    assert at.session_state["_bm_star_Charles"] == 4
+    assert at.session_state["_bm_tier_Charles"] == 2
+    assert at.session_state["_bm_wl_Charles"] == 7
+
+    # 3. Move generation slider to Gen 1
+    at.select_slider(key="_bm_gen").set_value(1).run()
+    assert not at.exception
+    assert at.select_slider(key="_bm_gen").value == 1
+
+    # In Gen 1, Charles should not appear in options or visible multiselect selection
+    assert "Charles" not in at.multiselect(key="_bm_own_Inf").options
+    assert "Charles" not in at.multiselect(key="_bm_own_Inf").value
+
+    # Charles and his custom build must be retained in master backing stores
+    assert "Charles" in at.session_state["_bm_master_owned"]["Inf"]
+    mb = at.session_state["_bm_master_builds"]["Charles"]
+    assert mb.level == "4_2"
+    assert mb.widget_level == 7
+
+    # 4. Save roster while viewing Gen 1: verify extraction retains Gen 7 & Charles
+    at.button(key="_bm_save_btn").click().run()
+    assert not at.exception
+    at.text_input(key="_bm_prompt_name").set_value("PreservedGen7Roster")
+    at.button(key="_bm_prompt_confirm").click().run()
+    assert not at.exception
+
+    # Check the persisted roster
+    raw_saved = at.session_state["_ks_rosters_store"]["PreservedGen7Roster"]
+    saved_roster = roster_from_json(raw_saved)
+    assert saved_roster.name == "PreservedGen7Roster"
+    assert saved_roster.generation == 7
+    assert "Charles" in saved_roster.owned_heroes["Inf"]
+    assert saved_roster.builds["Charles"].level == "4_2"
+    assert saved_roster.builds["Charles"].widget_level == 7
+
+    # 5. Move generation slider back to Gen 7
+    at.select_slider(key="_bm_gen").set_value(7).run()
+    assert not at.exception
+    assert at.select_slider(key="_bm_gen").value == 7
+
+    # Charles should now be visible again in multiselect and inputs restored
+    assert "Charles" in at.multiselect(key="_bm_own_Inf").options
+    assert "Charles" in at.multiselect(key="_bm_own_Inf").value
+    assert at.number_input(key="_bm_star_Charles").value == 4
+    assert at.number_input(key="_bm_tier_Charles").value == 2
+    assert at.slider(key="_bm_wl_Charles").value == 7
+
+
+def test_save_roster_reserved_name_rejected():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file(_RUN_APP_PATH)
+    at.run()
+    at.button(key="_bm_save_btn").click().run()
+    at.text_input(key="_bm_prompt_name").set_value("[Custom / Unsaved]")
+    at.button(key="_bm_prompt_confirm").click().run()
+    assert len(at.error) > 0
+    assert "Cannot use reserved name" in at.error[0].value
+
 
