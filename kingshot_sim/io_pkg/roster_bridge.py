@@ -1,7 +1,6 @@
 from __future__ import annotations
 import copy
 from dataclasses import replace
-from typing import Any, Optional
 
 from .rosters import AccountRoster
 from ..benchmark.runner import HeroBuild
@@ -177,6 +176,9 @@ def update_roster_from_search_space(
             for j in space.available_joiners:
                 if hero_class(j) == cls and j not in heroes:
                     heroes.append(j)
+            for h in roster.owned_heroes.get(cls, []):
+                if h in NON_COMBAT_FIRST_SKILL_HEROES and h not in heroes:
+                    heroes.append(h)
             new_owned[cls] = heroes
     else:
         new_owned = {cls: list(h) for cls, h in roster.owned_heroes.items()}
@@ -359,7 +361,12 @@ def extract_roster_from_benchmark(roster: AccountRoster) -> AccountRoster:
                 default_wl = 0 if h in EPIC_HEROES else 4
                 wl = ss.get(f"_bm_wl_{h}_{gen}", ss.get(f"_bm_wl_{h}", default_wl))
                 level = "MAX" if int(star) >= 5 else f"{int(star)}_{int(tier)}"
-                new_builds[h] = HeroBuild(level=level, widget_level=int(wl))
+                existing_skills = new_builds[h].skill_levels if h in new_builds else None
+                new_builds[h] = HeroBuild(
+                    level=level,
+                    widget_level=int(wl),
+                    skill_levels=existing_skills,
+                )
 
     new_gear = ss.get(
         "_bm_class_gear",

@@ -1,4 +1,3 @@
-from dataclasses import replace
 import pytest
 import streamlit as st
 
@@ -90,7 +89,7 @@ def test_roster_to_search_space_preserves_base_settings():
 def test_update_roster_from_search_space():
     r = AccountRoster(
         name="Original",
-        owned_heroes={"Inf": ["Helga"], "Cav": ["Margot"], "Arc": ["Yang"]},
+        owned_heroes={"Inf": ["Helga"], "Cav": ["Margot", "Diana"], "Arc": ["Yang"]},
         builds={"Helga": HeroBuild(level="MAX", widget_level=5)},
         class_gear={"Inf": {"head": HeroGearPiece(slot="head", quality="mythic", level=40)}},
         bonuses=BonusVector(squad_atk_pct=30.0),
@@ -112,6 +111,8 @@ def test_update_roster_from_search_space():
     updated = update_roster_from_search_space(r, sp)
     assert updated.name == "Original"
     assert "Amadeus" in updated.owned_heroes["Inf"]
+    assert "Margot" in updated.owned_heroes["Cav"]
+    assert "Diana" in updated.owned_heroes["Cav"]  # Preserved non-combat hero
     assert "Saul" in updated.owned_heroes["Arc"]  # Saul is Arc epic
     assert updated.builds["Helga"].widget_level == 10
     assert updated.builds["Helga"].skill_levels == (5, 5, 5)
@@ -196,7 +197,7 @@ def test_benchmark_synchronization(monkeypatch):
         generation=7,
         owned_heroes={"Inf": ["Amadeus"], "Cav": ["Margot"], "Arc": ["Yang"]},
         builds={
-            "Amadeus": HeroBuild(level="MAX", widget_level=9),
+            "Amadeus": HeroBuild(level="MAX", widget_level=9, skill_levels=(5, 4, 3)),
             "Margot": HeroBuild(level="4_2", widget_level=5),
         },
         class_gear={"Inf": {"head": HeroGearPiece(slot="head", quality="mythic", level=60)}},
@@ -224,6 +225,7 @@ def test_benchmark_synchronization(monkeypatch):
     assert extracted.name == "Sync Profile"
     assert extracted.generation == 8
     assert extracted.builds["Amadeus"].widget_level == 10
+    assert extracted.builds["Amadeus"].skill_levels == (5, 4, 3)
     assert extracted.builds["Margot"].level == "MAX"
     assert extracted.class_gear["Inf"]["head"].level == 60
     assert extracted.bonuses.squad_atk_pct == 100.0
