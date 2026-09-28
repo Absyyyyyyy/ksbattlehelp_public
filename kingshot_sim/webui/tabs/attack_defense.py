@@ -12,8 +12,15 @@ from kingshot_sim.optimizer.enumerate import count_candidates
 from kingshot_sim.data.reference import (
     MYTHIC_HEROES, EPIC_HEROES, HERO_CLASS,
     NON_COMBAT_FIRST_SKILL_HEROES, HERO_GENERATION, MAX_GENERATION,
-    parse_tier_label,
+    parse_tier_label, hero_class,
 )
+from kingshot_sim.config.fighter import Fighter
+from kingshot_sim.io_pkg.roster_bridge import (
+    roster_to_search_space,
+    update_roster_from_search_space,
+    roster_to_fighter,
+)
+from kingshot_sim.io_pkg.rosters import AccountRoster
 from kingshot_sim.webui.forms import (
     empty_fighter, bonuses_form, buffs_form,
     pool_tier_from_inputs, _troop_max_tier, _troop_tg_options,
@@ -186,6 +193,164 @@ def _cfg_for(mode_label: str) -> _ModeCfg:
     return _DEFENSE if mode_label == _DEFENSE_LABEL else _ATTACK
 
 
+def _fighter_from_roster(
+    roster: AccountRoster,
+    current_opp: Fighter | None = None,
+    default_label: str = "Opponent",
+) -> Fighter:
+    def _pick_leader(cls: str, current_hero: str | None, fallback: str) -> str:
+        cls_owned = [h for h in roster.owned_heroes.get(cls, []) if hero_class(h) == cls]
+        if not cls_owned:
+            cls_owned = [h for h in roster.builds if hero_class(h) == cls]
+        if current_hero and current_hero in cls_owned:
+            return current_hero
+        if cls_owned:
+            return cls_owned[0]
+        if current_hero and hero_class(current_hero) == cls:
+            return current_hero
+        return fallback
+
+    curr_inf = current_opp.leader_inf.hero_name if current_opp and current_opp.leader_inf else None
+    curr_cav = current_opp.leader_cav.hero_name if current_opp and current_opp.leader_cav else None
+    curr_arc = current_opp.leader_arc.hero_name if current_opp and current_opp.leader_arc else None
+
+    inf_hero = _pick_leader("Inf", curr_inf, "Eric")
+    cav_hero = _pick_leader("Cav", curr_cav, "Petra")
+    arc_hero = _pick_leader("Arc", curr_arc, "Jaeger")
+
+    joiners: list[str] = []
+    if current_opp and current_opp.joiners:
+        joiners = [j.hero_name for j in current_opp.joiners if j.hero_name not in (inf_hero, cav_hero, arc_hero)]
+    if not joiners and roster.owned_heroes:
+        for c in ("Inf", "Cav", "Arc"):
+            for h in roster.owned_heroes.get(c, []):
+                if (h in MYTHIC_HEROES or h in EPIC_HEROES) and (h not in NON_COMBAT_FIRST_SKILL_HEROES):
+                    if h not in (inf_hero, cav_hero, arc_hero) and h not in joiners:
+                        joiners.append(h)
+    joiners = joiners[:4]
+
+    troops = current_opp.troops if current_opp else None
+
+    return roster_to_fighter(
+        roster,
+        inf_hero=inf_hero,
+        cav_hero=cav_hero,
+        arc_hero=arc_hero,
+        joiners=tuple(joiners),
+        troops=troops,
+        label=roster.name or default_label,
+    )
+
+
+def _clear_and_rehydrate_space_widgets(sp: str, space: SearchSpace) -> None:
+    prefixes = (
+        f"{sp}_inf",
+        f"{sp}_cav",
+        f"{sp}_arc",
+        f"{sp}_joiners",
+        f"{sp}_lspec",
+        f"{sp}_classgear",
+        f"{sp}_bonus",
+        f"{sp}_buffs",
+        f"{sp}_march",
+        f"{sp}_level",
+        f"{sp}_tg",
+        f"{sp}_step",
+        f"{sp}_njoiners",
+        f"{sp}_mininf",
+        f"{sp}_easy",
+        f"{sp}_pending",
+        f"{sp}_post_import",
+    )
+    keys_to_pop = [k for k in list(st.session_state.keys()) if any(k.startswith(p) for p in prefixes)]
+    for k in keys_to_pop:
+        st.session_state.pop(k, None)
+
+    st.session_state[f"{sp}_input_mode"] = "Advanced"
+    st.session_state[f"{sp}_input_mode_radio"] = "Manual entry (Advanced)"
+
+
+def _render_candidate_profile_toolbar(cfg: _ModeCfg) -> tuple[bool, bool, str | None]:
+    prefix = cfg.prefix
+    sp = cfg.sp_prefix
+    saved_rosters = persistence.list_rosters()
+    active_pref = st.session_state.get("_ks_active_roster")
+
+    if not saved_rosters:
+        col_msg, col_reload, col_save = st.columns([3, 1.5, 2])
+        with col_msg:
+            st.caption("No account profiles saved yet. Create one in Settings.")
+        with col_reload:
+            st.button(
+                "🔄 Reload from Profile",
+                disabled=True,
+                key=f"{prefix}_reload_roster_btn",
+            )
+        with col_save:
+            st.button(
+                "💾 Save Changes Back to Profile",
+                disabled=True,
+                key=f"{prefix}_save_roster_btn",
+            )
+        return False, False, None
+
+    default_idx = 0
+    if active_pref and active_pref in saved_rosters:
+        default_idx = saved_rosters.index(active_pref)
+        if st.session_state.get(f"{prefix}_synced_active") != active_pref:
+            st.session_state.pop(f"{prefix}_roster_select", None)
+            st.session_state[f"{prefix}_synced_active"] = active_pref
+
+    if st.session_state.get(f"{prefix}_roster_select") not in saved_rosters:
+        st.session_state.pop(f"{prefix}_roster_select", None)
+
+    col_sel, col_reload, col_save = st.columns([3, 1.5, 2])
+    with col_sel:
+        selected_profile = st.selectbox(
+            "Account Profile",
+            saved_rosters,
+            index=default_idx,
+            key=f"{prefix}_roster_select",
+            label_visibility="collapsed",
+        )
+    with col_reload:
+        reload_clicked = st.button(
+            "🔄 Reload from Profile",
+            key=f"{prefix}_reload_roster_btn",
+        )
+    with col_save:
+        save_clicked = st.button(
+            "💾 Save Changes Back to Profile",
+            key=f"{prefix}_save_roster_btn",
+        )
+
+    last_loaded = st.session_state.get(f"{prefix}_active_profile_loaded")
+    should_load = False
+
+    if selected_profile != last_loaded:
+        should_load = True
+    elif reload_clicked:
+        should_load = True
+
+    if should_load and selected_profile:
+        try:
+            roster = persistence.load_roster(selected_profile)
+            base_space = st.session_state.get(f"{prefix}_space", _default_space())
+            new_space = roster_to_search_space(roster, base=base_space)
+            st.session_state[f"{prefix}_space"] = new_space
+            st.session_state["_ks_active_roster"] = roster.name
+            st.session_state[f"{prefix}_active_profile_loaded"] = roster.name
+            st.session_state[f"{prefix}_synced_active"] = roster.name
+            st.session_state[f"{prefix}_example_banner_dismissed"] = True
+            _clear_and_rehydrate_space_widgets(sp, new_space)
+            if reload_clicked:
+                st.success(f"Profile '{roster.name}' reloaded successfully.")
+        except Exception as e:
+            st.error(f"Failed to load profile '{selected_profile}': {e}")
+
+    return reload_clicked, save_clicked, selected_profile
+
+
 def render_session_loss_note(key: str) -> None:
     if not persistence.is_session_backend():
         return
@@ -320,6 +485,36 @@ def _render_body(cfg: _ModeCfg) -> None:
             is_solo_attack = attack_mode.startswith("Solo")
         st.session_state[f"{prefix}_is_solo_attack"] = is_solo_attack
 
+    if cfg.opp_session_key not in st.session_state:
+        st.session_state[cfg.opp_session_key] = empty_fighter(cfg.opp_empty_label)
+
+    rosters = persistence.list_rosters()
+    if rosters:
+        rc1, rc2 = st.columns([3, 1])
+        with rc1:
+            sel_r = st.selectbox(
+                "Load opponent from Account Profile",
+                ["—"] + rosters,
+                key=f"{prefix}_load_roster_{cfg.opp_tag}",
+            )
+        with rc2:
+            if st.button(
+                "Load",
+                key=f"{prefix}_btn_load_roster_{cfg.opp_tag}",
+                use_container_width=True,
+            ):
+                if sel_r != "—":
+                    loaded_r = persistence.load_roster(sel_r)
+                    curr_opp = st.session_state.get(cfg.opp_session_key)
+                    st.session_state[cfg.opp_session_key] = _fighter_from_roster(
+                        loaded_r, curr_opp, default_label=cfg.opp_empty_label,
+                    )
+                    gen_key = f"{cfg.opp_prefix}_form_gen"
+                    st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
+                    st.session_state[f"{cfg.opp_prefix}_input_mode"] = "Advanced"
+                    st.session_state[f"{cfg.opp_prefix}_input_mode_radio"] = "Advanced (manual entry)"
+                    st.rerun()
+
     profiles = persistence.list_profiles()
     if profiles:
         c1, c2 = st.columns([3, 1])
@@ -332,9 +527,6 @@ def _render_body(cfg: _ModeCfg) -> None:
                 if sel != "—":
                     st.session_state[cfg.opp_session_key] = persistence.load_profile(sel)
                     st.rerun()
-
-    if cfg.opp_session_key not in st.session_state:
-        st.session_state[cfg.opp_session_key] = empty_fighter(cfg.opp_empty_label)
 
     with st.expander(cfg.opp_setup_expander, expanded=False):
         try:
@@ -350,6 +542,8 @@ def _render_body(cfg: _ModeCfg) -> None:
     components.render_section_label(cfg.roster_section, num=2)
 
     with st.expander(cfg.roster_setup_expander, expanded=True):
+        reload_clicked, save_clicked, selected_profile = _render_candidate_profile_toolbar(cfg)
+
         if not cfg.is_defense:
             attack_mode = st.radio(
                 "How will candidates attack?",
@@ -407,6 +601,18 @@ def _render_body(cfg: _ModeCfg) -> None:
         except Exception as e:
             st.error(f"Search space invalid: {e}")
             return
+
+        if save_clicked and selected_profile:
+            try:
+                roster = persistence.load_roster(selected_profile)
+                updated_roster = update_roster_from_search_space(roster, space)
+                persistence.save_roster(updated_roster, updated_roster.name)
+                st.session_state["_ks_active_roster"] = updated_roster.name
+                st.session_state[f"{prefix}_active_profile_loaded"] = updated_roster.name
+                st.session_state[f"{prefix}_synced_active"] = updated_roster.name
+                st.success(f"Profile '{updated_roster.name}' saved back to profile!")
+            except Exception as e:
+                st.error(f"Failed to save profile '{selected_profile}': {e}")
 
     with st.expander("Save current setup"):
         c1, c2 = st.columns(2)
