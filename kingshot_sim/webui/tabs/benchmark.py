@@ -2,6 +2,10 @@ from __future__ import annotations
 import streamlit as st
 
 from kingshot_sim.webui import components, runtime_stats, search_runner, persistence
+from kingshot_sim.io_pkg.roster_bridge import (
+    apply_roster_to_benchmark,
+    extract_roster_from_benchmark,
+)
 from kingshot_sim.benchmark.runner import (
     BenchSettings, HeroBuild, rank_generation,
 )
@@ -810,14 +814,29 @@ def _builds_sig(builds) -> tuple:
     return tuple(sorted((h, b.level, b.widget_level) for h, b in builds.items()))
 
 
+def _gear_sig(class_gear) -> tuple:
+    if not class_gear or not isinstance(class_gear, dict):
+        return ()
+    res = []
+    for cls in sorted(class_gear.keys()):
+        slots = class_gear[cls]
+        if isinstance(slots, dict):
+            for s in sorted(slots.keys()):
+                p = slots[s]
+                res.append((cls, s, getattr(p, "quality", ""), getattr(p, "level", 0), getattr(p, "forge_mastery", 0)))
+    return tuple(res)
+
+
 def _cached_passes(gen, builds, widget_target, income, profile_override=None):
-    sig = (gen, widget_target, income, profile_override, _builds_sig(builds))
+    cg = st.session_state.get("_bm_class_gear", None)
+    sig = (gen, widget_target, income, profile_override, _builds_sig(builds), _gear_sig(cg))
     cache = st.session_state.setdefault("_bm_passes_cache", {})
     if sig not in cache:
         with st.spinner("Building your roadmap… (queues behind any running search)"):
             cache[sig] = _guarded_run(lambda: simulate(
                 gen, builds, widget_target=widget_target, shard_income=income,
-                profile_override=profile_override))
+                profile_override=profile_override,
+                class_gear=cg))
     return cache[sig]
 
 
@@ -1340,12 +1359,112 @@ def _render_noob_digest(rep) -> None:
                "and shard economics.")
 
 
+def render_profile_toolbar() -> None:
+    saved_rosters = persistence.list_rosters()
+    active_pref = st.session_state.get("_ks_active_roster")
+
+    if not saved_rosters:
+        col_sel, col_reload, col_save = st.columns([3, 1.5, 2])
+        with col_sel:
+            st.selectbox(
+                "Account Profile",
+                ["(No saved profiles)"],
+                disabled=True,
+                key="benchmark_roster_select",
+                label_visibility="collapsed",
+            )
+        with col_reload:
+            st.button(
+                "🔄 Reload from Profile",
+                disabled=True,
+                key="benchmark_reload_roster_btn",
+            )
+        with col_save:
+            st.button(
+                "💾 Save Changes Back to Profile",
+                disabled=True,
+                key="benchmark_save_roster_btn",
+            )
+        return
+
+    # Determine default index
+    default_idx = 0
+    if active_pref and active_pref in saved_rosters:
+        default_idx = saved_rosters.index(active_pref)
+        if st.session_state.get("_bm_synced_active") != active_pref:
+            st.session_state["benchmark_roster_select"] = active_pref
+            st.session_state["_bm_synced_active"] = active_pref
+
+    # Clean up stale widget key in session_state if it's no longer valid
+    if st.session_state.get("benchmark_roster_select") not in saved_rosters:
+        st.session_state.pop("benchmark_roster_select", None)
+
+    col_sel, col_reload, col_save = st.columns([3, 1.5, 2])
+    with col_sel:
+        selected_profile = st.selectbox(
+            "Account Profile",
+            saved_rosters,
+            index=default_idx,
+            key="benchmark_roster_select",
+            label_visibility="collapsed",
+        )
+    with col_reload:
+        reload_clicked = st.button(
+            "🔄 Reload from Profile",
+            key="benchmark_reload_roster_btn",
+        )
+    with col_save:
+        save_clicked = st.button(
+            "💾 Save Changes Back to Profile",
+            key="benchmark_save_roster_btn",
+        )
+
+    last_loaded = st.session_state.get("_bm_active_profile_loaded")
+    should_load = False
+
+    if selected_profile != last_loaded:
+        should_load = True
+    elif reload_clicked:
+        should_load = True
+
+    if should_load and selected_profile:
+        try:
+            roster = persistence.load_roster(selected_profile)
+            apply_roster_to_benchmark(roster)
+            if st.session_state.get("_bm_gen", 1) > MAX_GENERATION:
+                st.session_state["_bm_gen"] = MAX_GENERATION
+            st.session_state["_bm_class_gear"] = roster.class_gear
+            st.session_state["_ks_active_roster"] = roster.name
+            st.session_state["_bm_active_profile_loaded"] = roster.name
+            st.session_state["_bm_synced_active"] = roster.name
+            st.session_state.pop("_bm_result", None)
+            st.session_state.pop("_bm_passes_cache", None)
+            if reload_clicked:
+                st.success(f"Profile '{roster.name}' reloaded successfully.")
+        except Exception as e:
+            st.error(f"Failed to load profile '{selected_profile}': {e}")
+
+    if save_clicked and selected_profile:
+        try:
+            roster = persistence.load_roster(selected_profile)
+            updated_roster = extract_roster_from_benchmark(roster)
+            persistence.save_roster(updated_roster, updated_roster.name)
+            st.session_state["_bm_class_gear"] = updated_roster.class_gear
+            st.session_state["_ks_active_roster"] = updated_roster.name
+            st.session_state["_bm_active_profile_loaded"] = updated_roster.name
+            st.session_state["_bm_synced_active"] = updated_roster.name
+            st.success(f"Profile '{updated_roster.name}' saved back to profile!")
+        except Exception as e:
+            st.error(f"Failed to save profile '{selected_profile}': {e}")
+
+
 def render() -> None:
     components.render_page_header(
         "Hero Benchmark",
         "Which heroes should you develop? Pick your generation and roster, "
         "and the tool ranks what to build next.",
     )
+    render_profile_toolbar()
     _bm_view_options = ["Simple", "Explore rankings", "Advisor"]
     _persisted_view = st.session_state.get("_bm_view_mode")
     if _persisted_view is not None and _persisted_view not in _bm_view_options:
@@ -1401,8 +1520,10 @@ def render() -> None:
         else:
             with st.spinner("Simulating your roster… (queues behind any running "
                             "search to keep the server responsive)"):
+                cg = st.session_state.get("_bm_class_gear", None)
                 cur = _guarded_run(lambda: rank_generation(
-                    gen, BenchSettings(), builds=builds, roster=set(builds)))
+                    gen, BenchSettings(), builds=builds, roster=set(builds),
+                    class_gear=cg))
             st.session_state["_bm_result"] = (gen, dict(builds), cur)
             st.session_state.pop("_bm_passes_cache", None)
 
@@ -1453,4 +1574,10 @@ def render() -> None:
         _render_results(rgen, cur)
 
 
-__all__ = ["render", "_extract_roster_from_session", "_load_roster_into_session", "_render_roster_manager"]
+__all__ = [
+    "render",
+    "render_profile_toolbar",
+    "_extract_roster_from_session",
+    "_load_roster_into_session",
+    "_render_roster_manager",
+]

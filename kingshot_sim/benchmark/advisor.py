@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Optional
 
+from ..config.fighter import HeroGearPiece
 from ..data.reference import (
     hero_class, hero_leader_max, star_from_level, HERO_GENERATION, MAX_GENERATION,
     EPIC_HEROES,
@@ -294,12 +295,14 @@ class AdvisorPasses:
     settings: BenchSettings
     acquire: dict[str, HeroBuild] = field(default_factory=dict)
     n_battles: int = 0
+    class_gear: Optional[dict[str, dict[str, HeroGearPiece]]] = None
 
 
 def simulate(gen: int, builds: dict[str, HeroBuild],
              settings: Optional[BenchSettings] = None, lookahead: int = LOOKAHEAD,
              widget_target: int = 0, shard_income: int = F2P_SHARDS_PER_GEN,
-             profile_override: Optional[str] = None) -> AdvisorPasses:
+             profile_override: Optional[str] = None,
+             class_gear: Optional[dict[str, dict[str, HeroGearPiece]]] = None) -> AdvisorPasses:
     settings = settings or BenchSettings()
     uf = user_strength_factor(builds)
     profile = profile_override or player_profile(widget_target, shard_income)
@@ -308,13 +311,15 @@ def simulate(gen: int, builds: dict[str, HeroBuild],
                for h in _acquirable_now(gen, set(builds))}
     sim_builds = {**acquire, **builds}
     roster = set(sim_builds)
-    cur = rank_generation(gen, settings, builds=sim_builds, roster=roster, dummy_factor=uf)
+    cur = rank_generation(gen, settings, builds=sim_builds, roster=roster, dummy_factor=uf,
+                          class_gear=class_gear)
     ceil_builds = {
         h: HeroBuild(level=_star_level(max(target_star, star_from_level(b.level))),
                      widget_level=_ceiling_widget(h, b.widget_level, widget_target))
         for h, b in sim_builds.items()
     }
-    ceil = rank_generation(gen, settings, builds=ceil_builds, roster=roster, dummy_factor=uf)
+    ceil = rank_generation(gen, settings, builds=ceil_builds, roster=roster, dummy_factor=uf,
+                           class_gear=class_gear)
     last = min(gen + lookahead, MAX_GENERATION)
     curve: dict[str, dict[str, dict[str, float]]] = {}
     curve_target: dict[str, dict[str, dict[str, float]]] = {}
@@ -335,7 +340,8 @@ def simulate(gen: int, builds: dict[str, HeroBuild],
         curve_current=curve_current, profile=profile, target_star=target_star,
         widget_target=widget_target, shard_income=shard_income, settings=settings,
         acquire=acquire,
-        n_battles=getattr(cur, "n_battles", 0) + getattr(ceil, "n_battles", 0))
+        n_battles=getattr(cur, "n_battles", 0) + getattr(ceil, "n_battles", 0),
+        class_gear=class_gear)
 
 
 def advise_from_passes(passes: AdvisorPasses, builds: dict[str, HeroBuild],
