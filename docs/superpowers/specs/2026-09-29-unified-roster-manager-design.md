@@ -169,6 +169,24 @@ def update_roster_from_search_space(
     """Update an existing AccountRoster with overrides present in SearchSpace."""
     ...
 
+def roster_to_fighter(
+    roster: AccountRoster,
+    inf_hero: str,
+    cav_hero: str,
+    arc_hero: str,
+    joiners: tuple[str, ...] = (),
+    troops: TroopRoster | None = None,
+    label: str = "Opponent",
+) -> Fighter:
+    """Assemble a Fighter from an AccountRoster by selecting specific leaders & troops.
+    
+    - Equips inf_hero, cav_hero, arc_hero with stars, widgets, and skills from roster.builds.
+    - Equips class gear from roster.class_gear for each leader's class.
+    - Populates joiners with their levels from roster.builds.
+    - Injects roster.bonuses and roster.buffs.
+    """
+    ...
+
 def apply_roster_to_benchmark(roster: AccountRoster) -> None:
     """Hydrate Benchmark tab session state from an AccountRoster."""
     ...
@@ -201,19 +219,35 @@ Located in [`kingshot_sim/webui/tabs/settings.py`](file:///home/prmohan/projects
   * **Account Bonuses:** Squad and class stat multipliers using `bonuses_form()`.
   * **Account Buffs:** City combat buffs, pet levels, and title appointments using `buffs_form()`.
 
-### 5.2 Cross-Tab Profile Toolbar (Benchmark & Attack/Defense)
+### 5.2 Cross-Tab Profile Toolbar & Local Testing Overrides
 Placed at the top of [`kingshot_sim/webui/tabs/benchmark.py`](file:///home/prmohan/projects/ksbattlehelp_public/kingshot_sim/webui/tabs/benchmark.py) and [`kingshot_sim/webui/tabs/attack_defense.py`](file:///home/prmohan/projects/ksbattlehelp_public/kingshot_sim/webui/tabs/attack_defense.py):
 
 ```
 Active Profile: [ Main Account ▼ ]   [ 🔄 Reload from Profile ]   [ 💾 Save Changes Back to Profile ]
 ```
 
-* **Workflow:**
-  1. User selects a profile from the dropdown.
-  2. The tab immediately populates its local widgets (heroes, widgets, gear, buffs) from that profile.
-  3. The user can tweak values for specific test runs (e.g. testing W10 instead of W4 for a specific rally counter).
-  4. Local tweaks do not overwrite the profile on disk/session.
-  5. If desired, the user clicks **"Save Changes Back to Profile"**, writing the current tab configuration back to the active `AccountRoster`.
+* **Non-Destructive Local Overrides (What-If Experimentation):**
+  1. **Pre-fill:** When a profile is loaded, it populates all local form inputs (owned heroes, star tiers, widget sliders, class gear levels, account stat bonuses, city/pet buffs).
+  2. **Unconstrained In-Tab Overrides:** All widgets, sliders, number inputs, and selectors remain fully interactive. Players can freely modify values (e.g. bumping a hero from W4 to W10, testing an unowned hero, testing Red Gear +10, adjusting troop levels) to test "what-if" scenarios.
+  3. **Immediate Simulation Effect:** These overrides take effect immediately in the solver run (ranking benchmark candidates or running Monte Carlo battle simulations).
+  4. **Isolation:** Changes made inside the tab do **not** mutate the saved `AccountRoster` file or session store.
+  5. **Persistence Options:**
+     - To discard overrides and return to the baseline account profile, the user clicks **`[ 🔄 Reload from Profile ]`**.
+     - To commit the modified configuration permanently back into the profile, the user clicks **`[ 💾 Save Changes Back to Profile ]`**.
+
+### 5.3 Opponent Roster & Fighter Setup Workflow
+In [`kingshot_sim/webui/tabs/attack_defense.py`](file:///home/prmohan/projects/ksbattlehelp_public/kingshot_sim/webui/tabs/attack_defense.py) (§1 Opponent Setup):
+
+* **Populate Opponent from Profile:**
+  - Adds an option to load an opponent directly from any saved `AccountRoster`:
+    `Load Opponent from Account Profile: [ Enemy Whale (S120) ▼ ]  [ 🔄 Apply ]`
+  - Populates opponent-side account stat bonuses (`BonusVector`), city/pet buffs (`Buffs`), and class gear pieces.
+  - When picking the opponent's 3 leader heroes and joiners, their star tiers, ascensions, skill levels, and widget levels are automatically defaulted from the opponent's `builds`.
+* **Opponent Local Overrides:**
+  - Just like the player roster, opponent values remain fully adjustable in the tab (e.g. testing an opponent with higher buffs or alternative troops).
+* **Cross-Tool Integration:**
+  - Works seamlessly with Quick Fight and Sensitivity analysis via `roster_to_fighter()`.
+
 
 ---
 
@@ -241,6 +275,7 @@ Active Profile: [ Main Account ▼ ]   [ 🔄 Reload from Profile ]   [ 💾 Sav
 * **Bridge Adapters (`tests/test_roster_bridge.py`):**
   - Verify `roster_to_search_space` maps mythic pools, joiners, leader specs, class gear, bonuses, and buffs accurately.
   - Verify `update_roster_from_search_space` correctly updates `AccountRoster`.
+  - Verify `roster_to_fighter` constructs a full `Fighter` equipped with correct hero levels, widgets, skills, and class gear.
   - Verify benchmark runner equips class gear onto leaders in `build_trio`.
 * **Persistence & Backup (`tests/test_persistence.py`, `tests/test_backup.py`):**
   - Save, list, load, and delete operations in both filesystem and session storage modes.
