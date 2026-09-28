@@ -22,12 +22,17 @@ _FORM_KEY_PREFIXES: tuple[str, ...] = (
     "bd_",
     "sn_",
     "ad_",
+    "_bm_",
 )
 
 _EXCLUDED_KEY_SUBSTRINGS: tuple[str, ...] = (
     "_attacker", "_defender",
     "_btn_",
     "_reset_",
+    "_bm_run",
+    "_bm_ocr_",
+    "_bm_import_",
+    "_bm_preset_",
 )
 
 _EXCLUDED_KEY_SUFFIXES: tuple[str, ...] = (
