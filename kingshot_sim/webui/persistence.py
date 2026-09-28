@@ -1,19 +1,19 @@
 from __future__ import annotations
 from pathlib import Path
+from typing import Any
 
 from kingshot_sim.config.fighter import Fighter
 from kingshot_sim.optimizer.search_space import SearchSpace
+from kingshot_sim.io_pkg.rosters import (
+    AccountRoster, BenchmarkRoster, save_roster_file, load_roster_file,
+    roster_to_json, roster_from_json, roster_from_dict,
+)
 from kingshot_sim.io_pkg.profiles import (
     save_fighter, load_fighter, fighter_to_json, fighter_from_json,
 )
 from kingshot_sim.io_pkg.search_space_io import (
     save_search_space, load_search_space,
     search_space_to_json, search_space_from_json,
-)
-from kingshot_sim.io_pkg.rosters import (
-    BenchmarkRoster,
-    save_roster_file, load_roster_file,
-    roster_to_json, roster_from_json,
 )
 from kingshot_sim.io_pkg.scope import use_session_storage, session_dict
 
@@ -48,11 +48,11 @@ try:
     import streamlit as _st
 
     @_st.cache_data(ttl=5, show_spinner=False)
-    def _cached_profile_stems(_dir_str: str) -> tuple[str, ...]:
-        return _list_dir_stems(Path(_dir_str))
+    def _cached_profile_stems(dir_str: str) -> tuple[str, ...]:
+        return _list_dir_stems(Path(dir_str))
 except Exception:
-    def _cached_profile_stems(_dir_str: str) -> tuple[str, ...]:
-        return _list_dir_stems(Path(_dir_str))
+    def _cached_profile_stems(dir_str: str) -> tuple[str, ...]:
+        return _list_dir_stems(Path(dir_str))
 
 
 def _invalidate_profile_caches() -> None:
@@ -168,7 +168,7 @@ def delete_search(name: str) -> None:
         _invalidate_profile_caches()
 
 
-def save_roster(roster: BenchmarkRoster, name: str) -> Path:
+def save_roster(roster: AccountRoster, name: str) -> Path:
     safe = _safe_name(name)
     if _use_session_backend():
         _ss_rosters()[safe] = roster_to_json(roster)
@@ -180,7 +180,7 @@ def save_roster(roster: BenchmarkRoster, name: str) -> Path:
     return path
 
 
-def load_roster(name: str) -> BenchmarkRoster:
+def load_roster(name: str) -> AccountRoster:
     safe = _safe_name(name)
     if _use_session_backend():
         store = _ss_rosters()
@@ -255,8 +255,11 @@ def import_search_blob(name: str, payload: str) -> None:
     save_search(space, name)
 
 
-def import_roster_blob(name: str, payload: str) -> None:
-    roster = roster_from_json(payload)
+def import_roster_blob(name: str, payload: str | dict[str, Any]) -> None:
+    if isinstance(payload, dict):
+        roster = roster_from_dict(payload)
+    else:
+        roster = roster_from_json(str(payload))
     save_roster(roster, name)
 
 

@@ -132,7 +132,7 @@ def apply_backup_payload(
             ps.delete_roster(name)
     for name, blob in rosters.items():
         try:
-            ps.import_roster_blob(str(name), str(blob))
+            ps.import_roster_blob(str(name), blob)
             report.rosters_applied += 1
         except Exception as e:
             report.errors.append(f"roster {name!r}: {e}")

@@ -9,7 +9,12 @@ from kingshot_sim.io_pkg import backup as backup_mod
 from kingshot_sim.webui import theme as _theme
 
 
-_UI_PREF_KEYS: tuple[str, ...] = (_theme.THEME_STATE_KEY, "_bm_view_mode")
+LOCAL_STORAGE_KEYS: tuple[str, ...] = (
+    _theme.THEME_STATE_KEY,
+    "_bm_view_mode",
+    "_ks_active_roster",
+)
+_UI_PREF_KEYS: tuple[str, ...] = LOCAL_STORAGE_KEYS
 
 
 SCHEMA_VERSION = 1
@@ -276,4 +281,5 @@ __all__ = [
     "clear_browser_state",
     "SCHEMA_VERSION",
     "LS_KEY",
+    "LOCAL_STORAGE_KEYS",
 ]
