@@ -349,3 +349,50 @@ def test_save_roster_reserved_name_rejected():
     assert "Cannot use reserved name" in at.error[0].value
 
 
+def test_save_roster_sanitizes_name_with_spaces_apptest():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_string("""
+import streamlit as st
+from kingshot_sim.webui.tabs.benchmark import render
+from kingshot_sim.webui import persistence as ps
+
+render()
+st.session_state["_test_rosters_list"] = ps.list_rosters()
+""")
+    at.run()
+    assert not at.exception
+
+    # Click Save from [Custom / Unsaved]
+    at.button(key="_bm_save_btn").click().run()
+    assert not at.exception
+
+    # Enter name with spaces: "Alpha Roster"
+    at.text_input(key="_bm_prompt_name").set_value("Alpha Roster")
+    at.button(key="_bm_prompt_confirm").click().run()
+    assert not at.exception
+
+    # _bm_active_roster should be sanitized to "Alpha_Roster"
+    assert at.session_state["_bm_active_roster"] == "Alpha_Roster"
+    # Matches persistence.list_rosters()
+    assert "Alpha_Roster" in at.session_state["_test_rosters_list"]
+    assert at.session_state["_bm_active_roster"] in at.session_state["_test_rosters_list"]
+    # The selectbox options should contain "Alpha_Roster" and it remains selected
+    sb = at.selectbox[0]
+    assert "Alpha_Roster" in sb.options
+    assert sb.value == "Alpha_Roster"
+
+
+def test_load_roster_into_session_sanitizes_name():
+    st.session_state.clear()
+    r = BenchmarkRoster(
+        name="My Roster With Spaces",
+        generation=5,
+        owned_heroes={"Inf": ["Helga"]},
+        builds={"Helga": HeroBuild(level="MAX", widget_level=0)},
+    )
+    _load_roster_into_session(r)
+    assert st.session_state.get("_bm_active_roster") == "My_Roster_With_Spaces"
+
+
+

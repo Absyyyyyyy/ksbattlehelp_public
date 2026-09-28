@@ -27,6 +27,8 @@ def test_benchmark_transient_keys_excluded():
     assert not _is_widget_key_persistable("_bm_ocr_up_gen1")
     assert not _is_widget_key_persistable("_bm_ocr_go_gen1")
     assert not _is_widget_key_persistable("_bm_ocr_msg_gen1")
+    assert not _is_widget_key_persistable("_bm_preset_infantry")
+    assert not _is_widget_key_persistable("_bm_preset_clear")
 
 
 def test_form_key_prefixes_includes_bm():
@@ -48,6 +50,7 @@ def test_collect_form_state_with_benchmark_keys():
         "_bm_ocr_msg": "Analysis complete",
         "_bm_import_up": "mock_import_blob",
         "_bm_import_upload": "mock_uploader_state",
+        "_bm_preset_cav": True,
         # non-benchmark keys:
         "other_key": 123,
     }
@@ -67,6 +70,7 @@ def test_collect_form_state_with_benchmark_keys():
     assert "_bm_ocr_msg" not in collected
     assert "_bm_import_up" not in collected
     assert "_bm_import_upload" not in collected
+    assert "_bm_preset_cav" not in collected
     assert "other_key" not in collected
 
 

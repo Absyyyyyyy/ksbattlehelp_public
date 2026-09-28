@@ -88,7 +88,7 @@ def _extract_roster_from_session(
 
 
 def _load_roster_into_session(roster: BenchmarkRoster) -> None:
-    st.session_state["_bm_active_roster"] = roster.name
+    st.session_state["_bm_active_roster"] = persistence._safe_name(roster.name)
     st.session_state["_bm_master_gen"] = roster.generation
     st.session_state["_bm_pending_gen"] = roster.generation
     try:
@@ -303,18 +303,23 @@ def _render_roster_manager(
             help="Select a saved roster or customize.",
         )
         if selected != active_roster:
-            st.session_state["_bm_active_roster"] = selected
             if selected != "[Custom / Unsaved]":
-                loaded = persistence.load_roster(selected)
+                safe_name = persistence._safe_name(selected)
+                loaded = persistence.load_roster(safe_name)
                 _load_roster_into_session(loaded)
+                st.session_state["_bm_active_roster"] = safe_name
+            else:
+                st.session_state["_bm_active_roster"] = "[Custom / Unsaved]"
             st.rerun()
 
     with c_save:
         if st.button("Save", key="_bm_save_btn", use_container_width=True):
             if active_roster != "[Custom / Unsaved]":
-                r = _extract_roster_from_session(active_roster, gen, builds, owned)
-                persistence.save_roster(r, active_roster)
-                st.session_state["_bm_roster_msg"] = f"Saved roster '{active_roster}'."
+                safe_name = persistence._safe_name(active_roster)
+                r = _extract_roster_from_session(safe_name, gen, builds, owned)
+                persistence.save_roster(r, safe_name)
+                st.session_state["_bm_active_roster"] = safe_name
+                st.session_state["_bm_roster_msg"] = f"Saved roster '{safe_name}'."
                 st.rerun()
             else:
                 st.session_state["_bm_prompt_save_name"] = True
@@ -355,11 +360,12 @@ def _render_roster_manager(
                 elif p_name == "[Custom / Unsaved]":
                     st.error("Cannot use reserved name '[Custom / Unsaved]'. Please enter a different name.")
                 else:
-                    r = _extract_roster_from_session(p_name, gen, builds, owned)
-                    persistence.save_roster(r, p_name)
-                    st.session_state["_bm_active_roster"] = p_name
+                    safe_name = persistence._safe_name(p_name)
+                    r = _extract_roster_from_session(safe_name, gen, builds, owned)
+                    persistence.save_roster(r, safe_name)
+                    st.session_state["_bm_active_roster"] = safe_name
                     st.session_state.pop("_bm_prompt_save_name", None)
-                    st.session_state["_bm_roster_msg"] = f"Saved roster '{p_name}'."
+                    st.session_state["_bm_roster_msg"] = f"Saved roster '{safe_name}'."
                     st.rerun()
         with c_prompt_cancel:
             if st.button("Cancel", key="_bm_prompt_cancel_btn", use_container_width=True):
@@ -381,10 +387,11 @@ def _render_roster_manager(
                     elif name_clean == "[Custom / Unsaved]":
                         st.error("Cannot use reserved name '[Custom / Unsaved]'. Please enter a different name.")
                     else:
-                        r = _extract_roster_from_session(name_clean, gen, builds, owned)
-                        persistence.save_roster(r, name_clean)
-                        st.session_state["_bm_active_roster"] = name_clean
-                        st.session_state["_bm_roster_msg"] = f"Saved roster '{name_clean}'."
+                        safe_name = persistence._safe_name(name_clean)
+                        r = _extract_roster_from_session(safe_name, gen, builds, owned)
+                        persistence.save_roster(r, safe_name)
+                        st.session_state["_bm_active_roster"] = safe_name
+                        st.session_state["_bm_roster_msg"] = f"Saved roster '{safe_name}'."
                         st.rerun()
     with c_sub2:
         with st.expander("Import JSON"):
@@ -396,14 +403,15 @@ def _render_roster_manager(
                     try:
                         raw = up.getvalue().decode("utf-8")
                         imported = roster_from_json(raw)
-                        safe_imported_name = imported.name.strip() if imported.name else ""
-                        if not safe_imported_name or safe_imported_name == "[Custom / Unsaved]":
+                        raw_imported_name = imported.name.strip() if imported.name else ""
+                        safe_imported_name = persistence._safe_name(raw_imported_name)
+                        if not safe_imported_name or safe_imported_name in ("[Custom / Unsaved]", "unnamed"):
                             safe_imported_name = "imported_roster"
-                        if imported.name != safe_imported_name:
-                            imported.name = safe_imported_name
-                        persistence.save_roster(imported, imported.name)
+                        imported.name = safe_imported_name
+                        persistence.save_roster(imported, safe_imported_name)
                         _load_roster_into_session(imported)
-                        st.session_state["_bm_roster_msg"] = f"Loaded roster '{imported.name}'."
+                        st.session_state["_bm_active_roster"] = safe_imported_name
+                        st.session_state["_bm_roster_msg"] = f"Loaded roster '{safe_imported_name}'."
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed to load roster: {e}")

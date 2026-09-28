@@ -6,7 +6,7 @@ import re
 from typing import Any, Final
 
 from ..benchmark.runner import HeroBuild
-from ..data.reference import MYTHIC_HEROES, EPIC_HEROES, MAX_GENERATION
+from ..data.reference import MYTHIC_HEROES, EPIC_HEROES, MAX_GENERATION, hero_class
 
 MIN_GENERATION: Final[int] = 1
 MAX_ROSTER_GENERATION: Final[int] = max(MAX_GENERATION, 8)
@@ -73,7 +73,7 @@ def _build_from_dict(hero_name: str, data: Any) -> HeroBuild:
     if isinstance(lvl_raw, str):
         lvl_raw = lvl_raw.strip()
     if _is_valid_level(lvl_raw):
-        level = str(lvl_raw)
+        level = "MAX" if lvl_raw.startswith("5_") else str(lvl_raw)
     else:
         star_raw = data.get("star")
         sub_raw = data.get("sub_tier")
@@ -136,8 +136,11 @@ def roster_from_dict(data: dict[str, Any]) -> BenchmarkRoster:
     if isinstance(raw_owned, dict):
         for cls_name, hero_list in raw_owned.items():
             if isinstance(hero_list, (list, tuple)):
-                valid_list = [h for h in hero_list if isinstance(h, str) and h in ALL_HEROES]
-                owned_heroes[str(cls_name)] = valid_list
+                valid_list = [
+                    h for h in hero_list
+                    if isinstance(h, str) and h in ALL_HEROES and hero_class(h) == str(cls_name)
+                ]
+                owned_heroes[str(cls_name)] = list(dict.fromkeys(valid_list))
 
     builds: dict[str, HeroBuild] = {}
     raw_builds = data.get("builds")

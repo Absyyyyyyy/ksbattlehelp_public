@@ -57,7 +57,7 @@ class ImportReport:
         if self.profiles_applied:
             parts.append(f"{self.profiles_applied} profile(s)")
         if self.searches_applied:
-            parts.append(f"{self.searches_applied} roster/search space(s)")
+            parts.append(f"{self.searches_applied} search space(s)")
         if self.rosters_applied:
             parts.append(f"{self.rosters_applied} roster(s)")
         if self.op_overrides_applied:

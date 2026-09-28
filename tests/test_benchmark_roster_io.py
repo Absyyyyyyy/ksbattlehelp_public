@@ -16,10 +16,11 @@ def test_benchmark_roster_roundtrip_dict():
     roster = BenchmarkRoster(
         name="Test Roster",
         generation=7,
-        owned_heroes={"Inf": ["Jabel", "Amadeus"], "Cav": ["Margot"], "Arc": ["Yang"]},
+        owned_heroes={"Inf": ["Amadeus"], "Cav": ["Jabel", "Margot"], "Arc": ["Yang"]},
         builds={
             "Jabel": HeroBuild(level="MAX", widget_level=8),
             "Margot": HeroBuild(level="4_2", widget_level=5),
+            "Amadeus": HeroBuild(level="5_0", widget_level=4),
         },
     )
     d = roster_to_dict(roster)
@@ -33,6 +34,9 @@ def test_benchmark_roster_roundtrip_dict():
     assert loaded.builds["Jabel"].widget_level == 8
     assert loaded.builds["Margot"].level == "4_2"
     assert loaded.builds["Margot"].widget_level == 5
+    # Build specifying "5_0" normalizes to "MAX"
+    assert loaded.builds["Amadeus"].level == "MAX"
+    assert loaded.builds["Amadeus"].widget_level == 4
 
 
 def test_benchmark_roster_roundtrip_json(tmp_path: Path):
@@ -45,13 +49,49 @@ def test_benchmark_roster_roundtrip_json(tmp_path: Path):
     raw = roster_to_json(roster)
     loaded = roster_from_json(raw)
     assert loaded.name == "JSON Roster"
-    assert loaded.builds["Helga"].level == "5_0"
+    # 5_0 normalizes to MAX on deserialization
+    assert loaded.builds["Helga"].level == "MAX"
 
     p = tmp_path / "test.json"
     save_roster_file(roster, p)
     assert p.exists()
     from_file = load_roster_file(p)
     assert from_file.name == "JSON Roster"
+    assert from_file.builds["Helga"].level == "MAX"
+
+
+def test_benchmark_roster_five_star_normalization():
+    raw = {
+        "name": "Five Star Norm Test",
+        "generation": 6,
+        "builds": {
+            "Amadeus": {"level": "5_0", "widget_level": 5},
+            "Helga": {"level": "5_3", "widget_level": 2},
+            "Jabel": {"star": 5, "sub_tier": 0, "widget_level": 4},
+            "Margot": {"star": 5, "sub_tier": 5, "widget_level": 4},
+        },
+    }
+    loaded = roster_from_dict(raw)
+    assert loaded.builds["Amadeus"].level == "MAX"
+    assert loaded.builds["Helga"].level == "MAX"
+    assert loaded.builds["Jabel"].level == "MAX"
+    assert loaded.builds["Margot"].level == "MAX"
+
+
+def test_benchmark_roster_deduplication_and_class_validation():
+    raw = {
+        "name": "Dedup and Class Test",
+        "generation": 6,
+        "owned_heroes": {
+            "Inf": ["Helga", "Helga", "Jabel", "Amadeus", "Helga"],
+            "Cav": ["Jabel", "Margot", "Jabel"],
+            "Arc": ["Amadeus", "Yang", "Yang"],
+        },
+    }
+    loaded = roster_from_dict(raw)
+    assert loaded.owned_heroes["Inf"] == ["Helga", "Amadeus"]
+    assert loaded.owned_heroes["Cav"] == ["Jabel", "Margot"]
+    assert loaded.owned_heroes["Arc"] == ["Yang"]
 
 
 def test_benchmark_roster_resilience_to_corrupt_data():
