@@ -224,18 +224,6 @@ def _ocr_import(gen: int, options_by_cls: dict[str, list[str]]) -> None:
                 return
             valid = {h for opts in options_by_cls.values() for h in opts}
             picked: dict[str, list[str]] = {c: [] for c in ("Inf", "Cav", "Arc")}
-            for c in res.cells:
-                if c.hero_name in valid and c.klass in picked \
-                        and c.hero_name not in picked[c.klass]:
-                    picked[c.klass].append(c.hero_name)
-                    star = max(0, min(5, int(c.star)))
-                    sub = max(0, min(5, int(getattr(c, "sub_tier", 0))))
-                    st.session_state[f"_bm_star_{c.hero_name}"] = star
-                    st.session_state[f"_bm_tier_{c.hero_name}"] = sub
-            for c in ("Inf", "Cav", "Arc"):
-                if picked[c]:
-                    st.session_state[f"_bm_own_{c}"] = picked[c]
-            n = sum(len(v) for v in picked.values())
             master_builds = st.session_state.setdefault("_bm_master_builds", {})
             for c in res.cells:
                 if c.hero_name in valid and c.klass in picked \
@@ -247,6 +235,7 @@ def _ocr_import(gen: int, options_by_cls: dict[str, list[str]]) -> None:
                     st.session_state[f"_bm_tier_{c.hero_name}"] = sub
                     wl = master_builds.get(c.hero_name).widget_level if c.hero_name in master_builds else (0 if c.hero_name in EPIC_HEROES else _WIDGET_DEFAULT)
                     master_builds[c.hero_name] = HeroBuild(level=_code(star, sub), widget_level=int(wl))
+            n = sum(len(v) for v in picked.values())
             master_owned = st.session_state.setdefault("_bm_master_owned", {})
             for c in ("Inf", "Cav", "Arc"):
                 if picked[c]:
@@ -407,6 +396,11 @@ def _render_roster_manager(
                     try:
                         raw = up.getvalue().decode("utf-8")
                         imported = roster_from_json(raw)
+                        safe_imported_name = imported.name.strip() if imported.name else ""
+                        if not safe_imported_name or safe_imported_name == "[Custom / Unsaved]":
+                            safe_imported_name = "imported_roster"
+                        if imported.name != safe_imported_name:
+                            imported.name = safe_imported_name
                         persistence.save_roster(imported, imported.name)
                         _load_roster_into_session(imported)
                         st.session_state["_bm_roster_msg"] = f"Loaded roster '{imported.name}'."
