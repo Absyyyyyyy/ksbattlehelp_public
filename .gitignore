@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+.vscode/
+.idea/
+.kingshot_sim/
+.sim_counter.json
+.streamlit/secrets.toml
+.claude/settings.local.json
+graphify-out/
