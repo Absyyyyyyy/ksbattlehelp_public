@@ -27,6 +27,7 @@ def build_backup_payload() -> dict[str, Any]:
         "format": "ksbattlehelper-backup",
         "profiles": ps.export_profiles_dict(),
         "search_spaces": ps.export_searches_dict(),
+        "rosters": ps.export_rosters_dict(),
         "op_overrides": op_payload,
         "data_overrides": data_payload,
     }
@@ -40,6 +41,7 @@ def make_backup_blob(*, indent: int | None = 2) -> str:
 class ImportReport:
     profiles_applied: int = 0
     searches_applied: int = 0
+    rosters_applied: int = 0
     op_overrides_applied: int = 0
     data_overrides_applied: int = 0
     errors: list[str] = field(default_factory=list)
@@ -47,6 +49,7 @@ class ImportReport:
     @property
     def total_applied(self) -> int:
         return (self.profiles_applied + self.searches_applied
+                + self.rosters_applied
                 + self.op_overrides_applied + self.data_overrides_applied)
 
     def summary(self) -> str:
@@ -55,6 +58,8 @@ class ImportReport:
             parts.append(f"{self.profiles_applied} profile(s)")
         if self.searches_applied:
             parts.append(f"{self.searches_applied} roster/search space(s)")
+        if self.rosters_applied:
+            parts.append(f"{self.rosters_applied} roster(s)")
         if self.op_overrides_applied:
             parts.append(f"{self.op_overrides_applied} op-code override(s)")
         if self.data_overrides_applied:
@@ -116,6 +121,21 @@ def apply_backup_payload(
             report.searches_applied += 1
         except Exception as e:
             report.errors.append(f"search space {name!r}: {e}")
+
+    rosters = payload.get("rosters", {})
+    if not isinstance(rosters, dict):
+        report.errors.append("'rosters' section is not an object — skipped.")
+        rosters = {}
+
+    if replace_existing:
+        for name in list(ps.list_rosters()):
+            ps.delete_roster(name)
+    for name, blob in rosters.items():
+        try:
+            ps.import_roster_blob(str(name), str(blob))
+            report.rosters_applied += 1
+        except Exception as e:
+            report.errors.append(f"roster {name!r}: {e}")
 
     op_list = payload.get("op_overrides", [])
     if not isinstance(op_list, list):
