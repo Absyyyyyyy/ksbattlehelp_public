@@ -15,8 +15,6 @@ import streamlit as st
 
 INITIAL_COUNT = 131
 
-INITIAL_BATTLES = 558_846_600
-
 
 @dataclass(frozen=True)
 class _CounterSpec:
@@ -26,7 +24,7 @@ class _CounterSpec:
 
 
 _SIMS = _CounterSpec("ksbattlehelper:total_sims", "count", INITIAL_COUNT)
-_BATTLES = _CounterSpec("ksbattlehelper:total_battles", "battles", INITIAL_BATTLES)
+_BATTLES = _CounterSpec("ksbattlehelper:total_battles", "battles", 0)
 
 _COUNTER_FILE = Path(__file__).parent.parent / ".sim_counter.json"
 
@@ -205,7 +203,7 @@ def get_total_battles() -> int:
     try:
         return int(_backend().get(_BATTLES))
     except Exception:
-        return INITIAL_BATTLES
+        return 0
 
 
 def add_total_battles(n: int) -> int:
@@ -215,7 +213,7 @@ def add_total_battles(n: int) -> int:
             return get_total_battles()
         return int(_backend().increment(_BATTLES, n))
     except Exception:
-        return INITIAL_BATTLES
+        return 0
 
 
 def backend_name() -> str:
@@ -269,7 +267,6 @@ def get_running_count() -> int:
 
 __all__ = [
     "INITIAL_COUNT",
-    "INITIAL_BATTLES",
     "backend_name",
     "get_total_sims",
     "increment_total_sims",

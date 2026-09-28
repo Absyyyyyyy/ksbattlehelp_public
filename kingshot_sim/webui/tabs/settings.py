@@ -1,4 +1,5 @@
 from __future__ import annotations
+import html
 
 from datetime import datetime
 
@@ -24,7 +25,7 @@ def render() -> None:
             "back later. **Use the *Backup & restore* tab below to download "
             "a JSON file you can re-upload next time.** Or clone the repo "
             "and run the app locally for permanent disk storage. See the "
-            "README on [GitHub](https://github.com/Absyyyyyyy/ksbattlehelper) "
+            "README on [GitHub](https://github.com/Absyyyyyyy/ksbattlehelp_public) "
             "for instructions.",
         )
 
@@ -208,7 +209,7 @@ def _render_profiles(profiles: list[str]) -> None:
     if "set_inspect_profile" in st.session_state:
         name, fighter = st.session_state.set_inspect_profile
         st.markdown("---")
-        components.render_subheading(f"Inspecting: {name}")
+        components.render_subheading(f"Inspecting: {html.escape(name)}")
         with st.expander("Composition details", expanded=True):
             rows = [
                 ("Label", fighter.label),
@@ -228,7 +229,7 @@ def _render_profiles(profiles: list[str]) -> None:
                 'padding:6px 0;border-top:1px solid var(--ks-border);">'
                 f'<span style="color:var(--ks-text-muted);font-size:12.5px;">{k}</span>'
                 f'<span style="color:var(--ks-text);font-size:13px;font-weight:500;'
-                f'text-align:right;">{v}</span></div>'
+                f'text-align:right;">{html.escape(str(v))}</span></div>'
                 for k, v in rows
             )
             st.markdown(

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import html
 
 from dataclasses import dataclass
 from typing import Callable
@@ -905,7 +906,7 @@ def _render_top_k(cfg: _ModeCfg, report) -> None:
         f"##### Ranked {cfg.results_noun} · "
         f"<span style='color:var(--ks-text-muted);font-weight:400;'>top "
         f"{len(report.top_k)} vs "
-        f"<strong style='color:var(--ks-text);'>{opp_label}</strong></span>",
+        f"<strong style='color:var(--ks-text);'>{html.escape(str(opp_label))}</strong></span>",
         unsafe_allow_html=True,
     )
     st.caption("Every comp we tested, best to worst. Expand a candidate below "

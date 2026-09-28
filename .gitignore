@@ -10,5 +10,6 @@ venv/
 .kingshot_sim/
 .sim_counter.json
 .streamlit/secrets.toml
-.claude/settings.local.json
 graphify-out/
+.claude/
+CLAUDE.md
