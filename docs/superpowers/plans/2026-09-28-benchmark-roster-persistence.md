@@ -4,7 +4,7 @@
 
 **Goal:** Implement named roster saving, loading, and JSON import/export for the Benchmark tab while decoupling hero widget state from generation sliders to eliminate state loss when changing generations.
 
-**Architecture:** 
+**Architecture:**
 1. Define `BenchmarkRoster` dataclass with JSON schema and conversion utilities in `kingshot_sim/io_pkg/rosters.py`.
 2. Expose file and session storage methods in `kingshot_sim/webui/persistence.py` and hook into `backup.py` and `local_storage.py`.
 3. Refactor `kingshot_sim/webui/tabs/benchmark.py` to use hero-scoped widget keys (preserving builds across slider movements) and render a roster toolbar with save, load, export, and import controls.
@@ -103,7 +103,7 @@ def test_benchmark_roster_resilience_to_corrupt_data():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/test_benchmark_roster_io.py -v`  
+Run: `.venv/bin/pytest tests/test_benchmark_roster_io.py -v`
 Expected: FAIL with ModuleNotFoundError or import error for `kingshot_sim.io_pkg.rosters`.
 
 - [ ] **Step 3: Implement `kingshot_sim/io_pkg/rosters.py`**
@@ -112,7 +112,7 @@ Implement `BenchmarkRoster` dataclass, dictionary serializer/deserializer, JSON 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `.venv/bin/pytest tests/test_benchmark_roster_io.py -v`  
+Run: `.venv/bin/pytest tests/test_benchmark_roster_io.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -153,15 +153,15 @@ from kingshot_sim.io_pkg.scope import set_session_storage, clear_session_storage
 def test_file_roster_persistence(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(ps, "_ROSTERS_DIR", tmp_path / "rosters")
     set_session_storage(False)
-    
+
     r = BenchmarkRoster(name="Alpha", generation=6, owned_heroes={"Inf": ["Helga"]}, builds={"Helga": HeroBuild(level="MAX", widget_level=0)})
     ps.save_roster(r, "Alpha")
-    
+
     assert "Alpha" in ps.list_rosters()
     loaded = ps.load_roster("Alpha")
     assert loaded.name == "Alpha"
     assert loaded.generation == 6
-    
+
     ps.delete_roster("Alpha")
     assert "Alpha" not in ps.list_rosters()
 
@@ -174,10 +174,10 @@ def test_session_roster_persistence():
         assert "Beta" in ps.list_rosters()
         loaded = ps.load_roster("Beta")
         assert loaded.name == "Beta"
-        
+
         exported = ps.export_rosters_dict()
         assert "Beta" in exported
-        
+
         ps.delete_roster("Beta")
         assert "Beta" not in ps.list_rosters()
     finally:
@@ -186,7 +186,7 @@ def test_session_roster_persistence():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/test_benchmark_roster_persistence.py -v`  
+Run: `.venv/bin/pytest tests/test_benchmark_roster_persistence.py -v`
 Expected: FAIL with AttributeError (`list_rosters` not found in `persistence`).
 
 - [ ] **Step 3: Implement roster persistence functions in `kingshot_sim/webui/persistence.py`**
@@ -195,7 +195,7 @@ Add `_ROSTERS_DIR = _BASE_DIR / "rosters"`, `_SS_ROSTERS_KEY = "_ks_rosters_stor
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `.venv/bin/pytest tests/test_benchmark_roster_persistence.py -v`  
+Run: `.venv/bin/pytest tests/test_benchmark_roster_persistence.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -233,16 +233,16 @@ def test_backup_roundtrip_with_rosters():
     try:
         r = BenchmarkRoster(name="SavedRoster", generation=7, builds={"Helga": HeroBuild(level="MAX", widget_level=0)})
         ps.save_roster(r, "SavedRoster")
-        
+
         blob = backup.make_backup_blob()
         payload, err = backup.parse_backup_blob(blob)
         assert err is None
         assert "rosters" in payload
         assert "SavedRoster" in payload["rosters"]
-        
+
         ps.delete_roster("SavedRoster")
         assert "SavedRoster" not in ps.list_rosters()
-        
+
         rep = backup.apply_backup_payload(payload, replace_existing=False)
         assert rep.rosters_applied == 1
         assert "SavedRoster" in ps.list_rosters()
@@ -269,7 +269,7 @@ def test_backup_backwards_compatibility_without_rosters():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/test_backup_rosters.py -v`  
+Run: `.venv/bin/pytest tests/test_backup_rosters.py -v`
 Expected: FAIL with `AssertionError: assert 'rosters' in payload`.
 
 - [ ] **Step 3: Update `kingshot_sim/io_pkg/backup.py`**
@@ -280,7 +280,7 @@ Expected: FAIL with `AssertionError: assert 'rosters' in payload`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `.venv/bin/pytest tests/test_backup_rosters.py -v`  
+Run: `.venv/bin/pytest tests/test_backup_rosters.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -324,7 +324,7 @@ def test_benchmark_transient_keys_excluded():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/test_local_storage_benchmark.py -v`  
+Run: `.venv/bin/pytest tests/test_local_storage_benchmark.py -v`
 Expected: FAIL because `_is_widget_key_persistable` currently filters keys not starting with known form prefixes or exclusions.
 
 - [ ] **Step 3: Update `kingshot_sim/webui/local_storage.py`**
@@ -333,7 +333,7 @@ Add `"_bm_"` to `_FORM_KEY_PREFIXES`. Add action buttons and transient uploader 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `.venv/bin/pytest tests/test_local_storage_benchmark.py -v`  
+Run: `.venv/bin/pytest tests/test_local_storage_benchmark.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -366,7 +366,7 @@ Verify:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `.venv/bin/pytest tests/test_benchmark_ui_state.py -v`  
+Run: `.venv/bin/pytest tests/test_benchmark_ui_state.py -v`
 Expected: FAIL.
 
 - [ ] **Step 3: Refactor `benchmark.py`**
@@ -382,7 +382,7 @@ Expected: FAIL.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `.venv/bin/pytest tests/test_benchmark_ui_state.py -v`  
+Run: `.venv/bin/pytest tests/test_benchmark_ui_state.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -401,15 +401,15 @@ git commit -m "feat(benchmark): decouple hero state from generation slider and a
 
 - [ ] **Step 1: Run all new tests**
 
-Run: `.venv/bin/pytest tests/test_benchmark_roster_io.py tests/test_benchmark_roster_persistence.py tests/test_backup_rosters.py tests/test_local_storage_benchmark.py tests/test_benchmark_ui_state.py -v`  
+Run: `.venv/bin/pytest tests/test_benchmark_roster_io.py tests/test_benchmark_roster_persistence.py tests/test_backup_rosters.py tests/test_local_storage_benchmark.py tests/test_benchmark_ui_state.py -v`
 Expected: ALL PASS.
 
 - [ ] **Step 2: Run the complete test suite to ensure zero regressions**
 
-Run: `.venv/bin/pytest tests/ -q`  
+Run: `.venv/bin/pytest tests/ -q`
 Expected: ALL PASS (all 978 existing tests + new tests).
 
 - [ ] **Step 3: Review git status and diff**
 
-Run: `git status && git diff origin/main`  
+Run: `git status && git diff origin/main`
 Verify clean, readable changes without leftover debug prints, temporary files, or lint errors.

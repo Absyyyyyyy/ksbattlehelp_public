@@ -1,9 +1,9 @@
 # Benchmark Roster Persistence & State Preservation Design Spec
 
-**Date:** 2026-09-28  
-**Status:** Draft / Approved by User  
-**Target Repository:** `Absyyyyyyy/ksbattlehelp_public`  
-**Feature Branch:** `feature/benchmark-roster-persistence`  
+**Date:** 2026-09-28
+**Status:** Draft / Approved by User
+**Target Repository:** `Absyyyyyyy/ksbattlehelp_public`
+**Feature Branch:** `feature/benchmark-roster-persistence`
 
 ---
 

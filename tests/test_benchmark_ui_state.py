@@ -393,6 +393,3 @@ def test_load_roster_into_session_sanitizes_name():
     )
     _load_roster_into_session(r)
     assert st.session_state.get("_bm_active_roster") == "My_Roster_With_Spaces"
-
-
-

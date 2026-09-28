@@ -105,4 +105,3 @@ def test_hydrate_from_browser_benchmark_keys():
     assert "_bm_run" not in mock_ss
     assert "_bm_ocr_up" not in mock_ss
     assert mock_ss.get(_HYDRATED_FLAG) is True
-
