@@ -131,6 +131,86 @@ def test_render_account_roster_section_with_existing_roster_apptest(tmp_path, mo
     assert not at.exception, f"render_account_roster_section crashed with profile: {at.exception}"
 
 
+def test_delete_selected_profile_no_crash(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    r1 = AccountRoster(name="ToDelete", generation=8)
+    r2 = AccountRoster(name="Survivor", generation=8)
+    persistence.save_roster(r1, "ToDelete")
+    persistence.save_roster(r2, "Survivor")
+
+    def _app_delete_selected():
+        import streamlit as st
+        from kingshot_sim.webui.tabs.settings import render_account_roster_section
+        st.session_state["_ks_active_roster"] = "ToDelete"
+        st.session_state["settings_roster_select"] = "ToDelete"
+        render_account_roster_section()
+
+    at = AppTest.from_function(_app_delete_selected)
+    at.run()
+    assert not at.exception
+
+    del_btn = at.button(key="settings_roster_del_btn")
+    del_btn.click().run()
+    assert not at.exception
+    assert "ToDelete" not in persistence.list_rosters()
+    assert at.session_state.get("settings_roster_select") != "ToDelete"
+
+
+def test_delete_from_saved_list_when_selected_no_crash(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    r1 = AccountRoster(name="ListToDelete", generation=8)
+    r2 = AccountRoster(name="SurvivorProfile", generation=8)
+    persistence.save_roster(r1, "ListToDelete")
+    persistence.save_roster(r2, "SurvivorProfile")
+
+    def _app_list():
+        import streamlit as st
+        from kingshot_sim.webui.tabs.settings import render_account_roster_section
+        st.session_state["_ks_active_roster"] = "ListToDelete"
+        st.session_state["settings_roster_select"] = "ListToDelete"
+        render_account_roster_section()
+
+    at = AppTest.from_function(_app_list)
+    at.run()
+    assert not at.exception
+
+    del_list_btn = at.button(key="settings_del_roster_list_ListToDelete")
+    del_list_btn.click().run()
+    assert not at.exception
+    assert "ListToDelete" not in persistence.list_rosters()
+    assert at.session_state.get("settings_roster_select") != "ListToDelete"
+
+
+def test_upload_json_activates_uploaded_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    r = AccountRoster(
+        name="UploadedRoster",
+        generation=7,
+        owned_heroes={"Inf": ["Eric"]},
+        bonuses=BonusVector(inf_atk_pct=99.0),
+        buffs=Buffs(city_atk=20),
+    )
+    raw_bytes = persistence.roster_to_json(r).encode("utf-8")
+
+    at = AppTest.from_function(_render_account_roster_section_app)
+    at.run()
+    assert not at.exception
+
+    uploader = at.file_uploader(key="settings_roster_upload_json")
+    uploader.upload("UploadedRoster.json", raw_bytes).run()
+    assert not at.exception
+    at.run()
+
+    assert "UploadedRoster" in persistence.list_rosters()
+    assert at.session_state["_ks_active_roster"] == "UploadedRoster"
+    assert at.session_state["settings_roster_select"] == "UploadedRoster"
+    loaded = persistence.load_roster("UploadedRoster")
+    assert loaded.bonuses.inf_atk_pct == 99.0
+
+
 def _render_full_settings_app():
     from kingshot_sim.webui.tabs.settings import render
     render()

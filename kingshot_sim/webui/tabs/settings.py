@@ -109,6 +109,12 @@ def render_account_roster_section() -> None:
     else:
         default_idx = 0
 
+    pending_sel = st.session_state.pop("_pending_roster_select", None)
+    if pending_sel and pending_sel in options:
+        st.session_state["settings_roster_select"] = pending_sel
+    elif st.session_state.get("settings_roster_select") not in options:
+        st.session_state.pop("settings_roster_select", None)
+
     col_sel, col_save, col_del = st.columns([3, 1, 1])
     with col_sel:
         selected_profile = st.selectbox(
@@ -214,6 +220,11 @@ def render_account_roster_section() -> None:
                 imported_roster = persistence.roster_from_json(raw_content)
                 persistence.save_roster(imported_roster, imported_roster.name)
                 st.session_state["_ks_active_roster"] = imported_roster.name
+                st.session_state["_pending_roster_select"] = imported_roster.name
+                try:
+                    st.session_state["settings_roster_select"] = imported_roster.name
+                except Exception:
+                    pass
                 st.session_state["_settings_active_roster_loaded"] = imported_roster.name
                 st.session_state["_settings_roster_obj"] = imported_roster
                 for k in list(st.session_state.keys()):
@@ -248,8 +259,12 @@ def render_account_roster_section() -> None:
                     st.warning("No hero cards detected in the screenshot.")
                 else:
                     count = 0
+                    max_detected_gen = roster_obj.generation
                     for cell in res.cells:
                         h = cell.hero_name
+                        hero_gen = HERO_GENERATION.get(h)
+                        if hero_gen is not None and hero_gen > max_detected_gen:
+                            max_detected_gen = hero_gen
                         star = max(0, min(5, int(cell.star)))
                         sub = max(0, min(5, int(getattr(cell, "sub_tier", 0))))
                         lvl = "MAX" if star >= 5 else f"{star}_{sub}"
@@ -263,8 +278,11 @@ def render_account_roster_section() -> None:
                         eb = roster_obj.builds.get(h)
                         wl = eb.widget_level if eb else (0 if h in EPIC_HEROES else 4)
                         sl = eb.skill_levels if eb else None
+                        st.session_state[f"settings_roster_wdg_{h}"] = int(wl)
                         roster_obj.builds[h] = HeroBuild(level=lvl, widget_level=wl, skill_levels=sl)
                         count += 1
+                    roster_obj.generation = max(roster_obj.generation, max_detected_gen)
+                    st.session_state["settings_roster_generation"] = roster_obj.generation
                     st.session_state["_settings_roster_obj"] = roster_obj
                     st.success(f"Detected {count} heroes from screenshot!")
                     st.rerun()
@@ -465,6 +483,8 @@ def render_account_roster_section() -> None:
                         st.session_state.pop("_ks_active_roster", None)
                         st.session_state.pop("_settings_active_roster_loaded", None)
                         st.session_state.pop("_settings_roster_obj", None)
+                    if st.session_state.get("settings_roster_select") == r_name:
+                        st.session_state.pop("settings_roster_select", None)
                     st.rerun()
 
 
