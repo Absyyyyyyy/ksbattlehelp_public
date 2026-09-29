@@ -317,7 +317,7 @@ def _render_roster_manager(
             st.rerun()
 
     with c_save:
-        if st.button("Save", key="_bm_save_btn", use_container_width=True):
+        if st.button("Save", key="_bm_save_btn", width="stretch"):
             if active_roster != "[Custom / Unsaved]":
                 safe_name = persistence._safe_name(active_roster)
                 r = _extract_roster_from_session(safe_name, gen, builds, owned)
@@ -330,7 +330,7 @@ def _render_roster_manager(
                 st.rerun()
 
     with c_del:
-        if st.button("Delete", key="_bm_delete_btn", use_container_width=True,
+        if st.button("Delete", key="_bm_delete_btn", width="stretch",
                      disabled=(active_roster == "[Custom / Unsaved]")):
             if active_roster != "[Custom / Unsaved]":
                 persistence.delete_roster(active_roster)
@@ -348,7 +348,7 @@ def _render_roster_manager(
             file_name=f"{current_name}.json",
             mime="application/json",
             key="_bm_export_btn",
-            use_container_width=True,
+            width="stretch",
         )
 
     if st.session_state.get("_bm_prompt_save_name"):
@@ -357,7 +357,7 @@ def _render_roster_manager(
             prompt_name = st.text_input("Name for this roster", key="_bm_prompt_name",
                                         label_visibility="collapsed", placeholder="Enter roster name...")
         with c_prompt_btn:
-            if st.button("Confirm", key="_bm_prompt_confirm", type="primary", use_container_width=True):
+            if st.button("Confirm", key="_bm_prompt_confirm", type="primary", width="stretch"):
                 p_name = prompt_name.strip()
                 if not p_name:
                     st.error("Please enter a valid roster name.")
@@ -372,7 +372,7 @@ def _render_roster_manager(
                     st.session_state["_bm_roster_msg"] = f"Saved roster '{safe_name}'."
                     st.rerun()
         with c_prompt_cancel:
-            if st.button("Cancel", key="_bm_prompt_cancel_btn", use_container_width=True):
+            if st.button("Cancel", key="_bm_prompt_cancel_btn", width="stretch"):
                 st.session_state.pop("_bm_prompt_save_name", None)
                 st.rerun()
 
@@ -384,7 +384,7 @@ def _render_roster_manager(
                 new_roster_name = st.text_input("New roster name", key="_bm_save_as_name",
                                                 label_visibility="collapsed", placeholder="New roster name...")
             with save_as_col_btn:
-                if st.button("Save As", key="_bm_save_as_btn", use_container_width=True):
+                if st.button("Save As", key="_bm_save_as_btn", width="stretch"):
                     name_clean = new_roster_name.strip()
                     if not name_clean:
                         st.error("Please enter a roster name.")
@@ -403,7 +403,7 @@ def _render_roster_manager(
                                   label_visibility="collapsed")
             if up is not None:
                 if st.button("Apply imported roster", type="primary", key="_bm_apply_import_btn",
-                             use_container_width=True):
+                             width="stretch"):
                     try:
                         raw = up.getvalue().decode("utf-8")
                         imported = roster_from_json(raw)
@@ -753,7 +753,7 @@ def _render_heatmap(gr) -> None:
     fig.update_layout(margin=dict(l=10, r=10, t=10, b=10),
                       height=max(280, 26 * len(heroes) + 60))
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("Brightest cell in a column = the best hero for that scenario "
                "(colour is normalised per column; the number is the raw score). "
                "Rows are grouped Inf / Cav / Arc.")
@@ -787,7 +787,7 @@ def _render_radar(gr) -> None:
         margin=dict(l=40, r=40, t=24, b=24), height=420, showlegend=True,
     )
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("Each axis is normalised to the best in class. The *shape* shows "
                "specialisation (a defender peaks on Defense/Garrison, an attacker "
                "on Solo/Rally).")
@@ -856,7 +856,7 @@ def _render_weight_controls(profile: str) -> dict:
                ("Defense", PLAY_WEIGHTS["defense"]), ("Attack", PLAY_WEIGHTS["attack"]),
                ("Garrison", PLAY_WEIGHTS["garrison"]), ("Rally", PLAY_WEIGHTS["rally"])]
     for col, (lbl, w) in zip(st.columns(len(presets)), presets):
-        if col.button(lbl, key=f"_bm_preset_{lbl}", use_container_width=True):
+        if col.button(lbl, key=f"_bm_preset_{lbl}", width="stretch"):
             for m, v in w.items():
                 st.session_state[f"_bm_w_{m}"] = int(round(v * 100))
             st.rerun()
@@ -1250,7 +1250,7 @@ def _render_crossover(rep) -> None:
         margin=dict(l=10, r=10, t=10, b=10), height=340,
         legend=dict(orientation="h", yanchor="bottom", y=-0.35))
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption(
         f"Green line = your **{best_h}** at your {tgt} target (you keep it). Hollow dot "
         "= where it is now. The gap to the line is what you gain by developing what you "
@@ -1287,7 +1287,7 @@ def _render_quadrant(rep) -> None:
         margin=dict(l=10, r=10, t=24, b=10),
         height=max(220, 30 * len(owned) + 50))
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("Each bar = the power you'd UNLOCK by taking that hero to its "
                "potential (your target★ + widget). Longest bars = where your shards/"
                "widget buy the most. Colour = the advisor's call (green = develop, "

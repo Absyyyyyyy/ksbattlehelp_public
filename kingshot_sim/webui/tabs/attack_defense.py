@@ -373,7 +373,7 @@ def render_session_loss_note(key: str) -> None:
         file_name=f"ksbattlehelper_backup_{_dt.utcnow().strftime('%Y%m%d_%H%M%S')}.json",
         mime="application/json",
         key=f"{key}_backup_dl",
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -502,7 +502,7 @@ def _render_body(cfg: _ModeCfg) -> None:
             if st.button(
                 "Load",
                 key=f"{prefix}_btn_load_roster_{cfg.opp_tag}",
-                use_container_width=True,
+                width="stretch",
             ):
                 if sel_r != "—":
                     loaded_r = persistence.load_roster(sel_r)
@@ -524,7 +524,7 @@ def _render_body(cfg: _ModeCfg) -> None:
                                 ["—"] + profiles, key=f"{prefix}_load_{cfg.opp_tag}")
         with c2:
             if st.button("Load", key=f"{prefix}_btn_load_{cfg.opp_tag}",
-                          use_container_width=True):
+                          width="stretch"):
                 if sel != "—":
                     st.session_state[cfg.opp_session_key] = persistence.load_profile(sel)
                     st.rerun()
@@ -578,7 +578,7 @@ def _render_body(cfg: _ModeCfg) -> None:
                 )
             with bc2:
                 if st.button("Got it", key=f"{prefix}_dismiss_example",
-                             use_container_width=True):
+                             width="stretch"):
                     st.session_state[_dismiss_key] = True
                     st.rerun()
 
@@ -590,7 +590,7 @@ def _render_body(cfg: _ModeCfg) -> None:
                                       ["—"] + spaces, key=f"{prefix}_load_space")
             with c2:
                 if st.button("Load", key=f"{prefix}_btn_load_space",
-                              use_container_width=True):
+                              width="stretch"):
                     if sel_s != "—":
                         st.session_state[f"{prefix}_space"] = persistence.load_search(sel_s)
                         st.rerun()
@@ -709,7 +709,7 @@ def _render_body(cfg: _ModeCfg) -> None:
         st.session_state[job_key] = SearchJob()
 
     run_clicked = st.button("Run search", type="primary", key=f"{prefix}_run",
-                              use_container_width=True)
+                              width="stretch")
     if run_clicked:
         start_search(
             job=st.session_state[job_key],
@@ -796,7 +796,7 @@ def _search_space_form(default: SearchSpace, cfg: _ModeCfg,
             )
         with c2:
             if st.button("Re-import", key=f"{sp}_reimport",
-                           use_container_width=True,
+                           width="stretch",
                            help="Discard the imported values and run the quiz again."):
                 searchspace_easy_import_reset(sp)
                 st.rerun()
@@ -1353,7 +1353,7 @@ def _render_top_k(cfg: _ModeCfg, report) -> None:
         h1, h2, h3 = st.columns(3)
         with h1:
             st.button("Open in Quick Fight", key=f"{prefix}_to_qf",
-                      use_container_width=True, disabled=opponent is None,
+                      width="stretch", disabled=opponent is None,
                       help="Send this matchup to Quick Fight, both sides pre-filled.",
                       on_click=_handoff_to,
                       args=("quick_fight", "qf_attacker", "qf_defender",
@@ -1361,7 +1361,7 @@ def _render_top_k(cfg: _ModeCfg, report) -> None:
                       kwargs={"is_def": is_def, "is_solo": is_solo})
         with h2:
             st.button("Test in Sensitivity", key=f"{prefix}_to_sn",
-                      use_container_width=True, disabled=opponent is None,
+                      width="stretch", disabled=opponent is None,
                       help="Send this matchup to Sensitivity to sweep one lever.",
                       on_click=_handoff_to,
                       args=("sensitivity", "sn_attacker", "sn_defender",
@@ -1369,7 +1369,7 @@ def _render_top_k(cfg: _ModeCfg, report) -> None:
                       kwargs={"is_def": is_def, "is_solo": is_solo})
         with h3:
             if st.button("Save as profile", key=f"{prefix}_drill_save",
-                         use_container_width=True):
+                         width="stretch"):
                 persistence.save_profile(
                     cand, f"{cfg.drill_save_prefix}{chosen.rank}_{cand.label}"[:50])
                 st.success("Saved to profiles.")

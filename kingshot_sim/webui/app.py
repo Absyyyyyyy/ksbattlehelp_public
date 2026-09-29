@@ -203,7 +203,7 @@ def _render_sidebar_nav() -> None:
             st.button(
                 label,
                 key=f"nav_{slug}",
-                use_container_width=True,
+                width="stretch",
                 type=("primary" if slug == current else "secondary"),
                 on_click=_set_active_tab, args=(slug,),
             )

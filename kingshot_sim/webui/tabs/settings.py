@@ -168,7 +168,7 @@ def render_account_roster_section() -> None:
             "Save Profile",
             type="primary",
             key="settings_roster_save_btn",
-            use_container_width=True,
+            width="stretch",
         )
     with col_del:
         del_clicked = st.button(
@@ -176,7 +176,7 @@ def render_account_roster_section() -> None:
             type="secondary",
             key="settings_roster_del_btn",
             disabled=is_new,
-            use_container_width=True,
+            width="stretch",
         )
 
     profile_name = st.text_input(
@@ -207,7 +207,7 @@ def render_account_roster_section() -> None:
             file_name=f"{safe_fname}_roster.json",
             mime="application/json",
             key="settings_roster_download_json",
-            use_container_width=True,
+            width="stretch",
         )
     with up_col:
         uploaded_file = st.file_uploader(

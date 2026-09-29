@@ -32,14 +32,14 @@ def render() -> None:
         with c1:
             sel_a = st.selectbox("Load attacker", ["—"] + profiles, key="qf_load_att")
         with c2:
-            if st.button("→ Attacker", key="qf_btn_load_att", use_container_width=True):
+            if st.button("→ Attacker", key="qf_btn_load_att", width="stretch"):
                 if sel_a != "—":
                     st.session_state.qf_attacker = persistence.load_profile(sel_a)
                     st.rerun()
         with c3:
             sel_d = st.selectbox("Load defender", ["—"] + profiles, key="qf_load_def")
         with c4:
-            if st.button("→ Defender", key="qf_btn_load_def", use_container_width=True):
+            if st.button("→ Defender", key="qf_btn_load_def", width="stretch"):
                 if sel_d != "—":
                     st.session_state.qf_defender = persistence.load_profile(sel_d)
                     st.rerun()
@@ -111,7 +111,7 @@ def render() -> None:
         seed = st.number_input("Random seed", 0, 2**31 - 1, 42, key="qf_seed",
                                  help="For reproducible randomness.")
     with rcols[3]:
-        run_btn = st.button("▶ Run battle", use_container_width=True,
+        run_btn = st.button("▶ Run battle", width="stretch",
                              type="primary", key="qf_run")
 
     if not run_btn:
@@ -216,7 +216,7 @@ def _render_single_result(result, attacker: Fighter, defender: Fighter,
     components.render_subheading("Round-by-round troop counts")
     fig = _round_chart(result, initial_att, initial_def)
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_casualty_table(initial_att: dict, att_lost: dict,
@@ -296,7 +296,7 @@ def _render_mc_result(mc) -> None:
             margin=dict(l=10, r=10, t=10, b=10), height=300,
         )
         components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def _round_chart(result, initial_att: dict, initial_def: dict) -> go.Figure:

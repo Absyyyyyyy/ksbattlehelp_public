@@ -36,14 +36,14 @@ def render() -> None:
         with c1:
             sel_a = st.selectbox("Load attacker", ["—"] + profiles, key="sn_load_att")
         with c2:
-            if st.button("→ Attacker", key="sn_btn_att", use_container_width=True):
+            if st.button("→ Attacker", key="sn_btn_att", width="stretch"):
                 if sel_a != "—":
                     st.session_state.sn_attacker = persistence.load_profile(sel_a)
                     st.rerun()
         with c3:
             sel_d = st.selectbox("Load defender", ["—"] + profiles, key="sn_load_def")
         with c4:
-            if st.button("→ Defender", key="sn_btn_def", use_container_width=True):
+            if st.button("→ Defender", key="sn_btn_def", width="stretch"):
                 if sel_d != "—":
                     st.session_state.sn_defender = persistence.load_profile(sel_d)
                     st.rerun()
@@ -119,7 +119,7 @@ def render() -> None:
     with mcols[2]:
         seed = st.number_input("Seed", 0, 2**31 - 1, 42, key="sn_seed")
     with mcols[3]:
-        run_btn = st.button("▶ Run sweep", use_container_width=True,
+        run_btn = st.button("▶ Run sweep", width="stretch",
                               type="primary", key="sn_run")
 
     if not run_btn:
@@ -192,7 +192,7 @@ def _render_curve(result: SweepResult) -> None:
         margin=dict(l=10, r=10, t=10, b=10), height=400,
     )
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     with st.expander("Sweep data", expanded=False):
         import pandas as pd
@@ -206,4 +206,4 @@ def _render_curve(result: SweepResult) -> None:
                 row["CI low"]  = f"{p.score_ci_low:+.4f}"  if p.score_ci_low  is not None else "—"
                 row["CI high"] = f"{p.score_ci_high:+.4f}" if p.score_ci_high is not None else "—"
             rows.append(row)
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
