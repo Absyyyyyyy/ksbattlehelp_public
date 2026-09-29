@@ -1401,10 +1401,11 @@ def render_profile_toolbar() -> None:
 
     col_sel, col_reload, col_save = st.columns([3, 1.5, 2])
     with col_sel:
+        sb_idx = None if "benchmark_roster_select" in st.session_state else default_idx
         selected_profile = st.selectbox(
             "Account Profile",
             saved_rosters,
-            index=default_idx,
+            index=sb_idx,
             key="benchmark_roster_select",
             label_visibility="collapsed",
         )

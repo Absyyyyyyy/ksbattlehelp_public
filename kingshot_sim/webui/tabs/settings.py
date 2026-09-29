@@ -118,10 +118,11 @@ def render_account_roster_section() -> None:
 
     col_sel, col_save, col_del = st.columns([3, 1, 1])
     with col_sel:
+        sb_idx = None if "settings_roster_select" in st.session_state else default_idx
         selected_profile = st.selectbox(
             "Select Profile",
             options,
-            index=default_idx,
+            index=sb_idx,
             key="settings_roster_select",
         )
 

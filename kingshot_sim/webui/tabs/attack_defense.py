@@ -306,10 +306,11 @@ def _render_candidate_profile_toolbar(cfg: _ModeCfg) -> tuple[bool, bool, str | 
 
     col_sel, col_reload, col_save = st.columns([3, 1.5, 2])
     with col_sel:
+        sb_idx = None if f"{prefix}_roster_select" in st.session_state else default_idx
         selected_profile = st.selectbox(
             "Account Profile",
             saved_rosters,
-            index=default_idx,
+            index=sb_idx,
             key=f"{prefix}_roster_select",
             label_visibility="collapsed",
         )
