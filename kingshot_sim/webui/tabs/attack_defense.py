@@ -18,7 +18,7 @@ from kingshot_sim.config.fighter import Fighter
 from kingshot_sim.io_pkg.roster_bridge import (
     roster_to_search_space,
     update_roster_from_search_space,
-    roster_to_fighter,
+    account_roster_to_fighter,
 )
 from kingshot_sim.io_pkg.rosters import AccountRoster
 from kingshot_sim.webui.forms import (
@@ -191,55 +191,6 @@ def _roster_is_untouched_default(space: SearchSpace) -> bool:
 
 def _cfg_for(mode_label: str) -> _ModeCfg:
     return _DEFENSE if mode_label == _DEFENSE_LABEL else _ATTACK
-
-
-def _fighter_from_roster(
-    roster: AccountRoster,
-    current_opp: Fighter | None = None,
-    default_label: str = "Opponent",
-) -> Fighter:
-    def _pick_leader(cls: str, current_hero: str | None, fallback: str) -> str:
-        cls_owned = [h for h in roster.owned_heroes.get(cls, []) if hero_class(h) == cls]
-        if not cls_owned:
-            cls_owned = [h for h in roster.builds if hero_class(h) == cls]
-        if current_hero and current_hero in cls_owned:
-            return current_hero
-        if cls_owned:
-            return cls_owned[0]
-        if current_hero and hero_class(current_hero) == cls:
-            return current_hero
-        return fallback
-
-    curr_inf = current_opp.leader_inf.hero_name if current_opp and current_opp.leader_inf else None
-    curr_cav = current_opp.leader_cav.hero_name if current_opp and current_opp.leader_cav else None
-    curr_arc = current_opp.leader_arc.hero_name if current_opp and current_opp.leader_arc else None
-
-    inf_hero = _pick_leader("Inf", curr_inf, "Eric")
-    cav_hero = _pick_leader("Cav", curr_cav, "Petra")
-    arc_hero = _pick_leader("Arc", curr_arc, "Jaeger")
-
-    joiners: list[str] = []
-    if current_opp and current_opp.joiners:
-        joiners = [j.hero_name for j in current_opp.joiners if j.hero_name not in (inf_hero, cav_hero, arc_hero)]
-    if not joiners and roster.owned_heroes:
-        for c in ("Inf", "Cav", "Arc"):
-            for h in roster.owned_heroes.get(c, []):
-                if (h in MYTHIC_HEROES or h in EPIC_HEROES) and (h not in NON_COMBAT_FIRST_SKILL_HEROES):
-                    if h not in (inf_hero, cav_hero, arc_hero) and h not in joiners:
-                        joiners.append(h)
-    joiners = joiners[:4]
-
-    troops = current_opp.troops if current_opp else None
-
-    return roster_to_fighter(
-        roster,
-        inf_hero=inf_hero,
-        cav_hero=cav_hero,
-        arc_hero=arc_hero,
-        joiners=tuple(joiners),
-        troops=troops,
-        label=roster.name or default_label,
-    )
 
 
 def _clear_and_rehydrate_space_widgets(sp: str, space: SearchSpace) -> None:
@@ -507,7 +458,7 @@ def _render_body(cfg: _ModeCfg) -> None:
                 if sel_r != "—":
                     loaded_r = persistence.load_roster(sel_r)
                     curr_opp = st.session_state.get(cfg.opp_session_key)
-                    st.session_state[cfg.opp_session_key] = _fighter_from_roster(
+                    st.session_state[cfg.opp_session_key] = account_roster_to_fighter(
                         loaded_r, curr_opp, default_label=cfg.opp_empty_label,
                     )
                     gen_key = f"{cfg.opp_prefix}_form_gen"

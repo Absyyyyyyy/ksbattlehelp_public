@@ -19,6 +19,7 @@ from ..data.reference import (
     EPIC_HEROES,
     HERO_CLASS,
     NON_COMBAT_FIRST_SKILL_HEROES,
+    HERO_GENERATION,
     hero_class,
 )
 
@@ -278,6 +279,146 @@ def roster_to_fighter(
     )
 
 
+def account_roster_to_fighter(
+    roster: AccountRoster,
+    current_fighter: Fighter | None = None,
+    default_label: str = "Fighter",
+) -> Fighter:
+    """Translate an AccountRoster into a Fighter.
+
+    - Intelligently selects leaders per class (Inf, Cav, Arc), checking
+      roster.owned_heroes and roster.builds, retaining current_fighter leader
+      if present and owned, falling back to class starters (Eric, Petra, Jaeger).
+    - Gathers up to 4 eligible combat joiners (excluding leaders and
+      NON_COMBAT_FIRST_SKILL_HEROES).
+    - Equips stars, widget levels (0-10), and skills from roster.builds.
+    - Equips class gear from roster.class_gear.
+    - Copies roster.bonuses and roster.buffs.
+    - Preserves current_fighter.troops if provided; defaults to TroopRoster() if None.
+    - Sets label to roster.name or default_label.
+    """
+    def _pick_leader(cls: str, current_hero: str | None, fallback: str) -> str:
+        cls_owned = [h for h in roster.owned_heroes.get(cls, []) if hero_class(h) == cls]
+        if not cls_owned:
+            cls_owned = [h for h in roster.builds if hero_class(h) == cls]
+        if current_hero and current_hero in cls_owned:
+            return current_hero
+        if cls_owned:
+            return cls_owned[0]
+        if current_hero and hero_class(current_hero) == cls:
+            return current_hero
+        return fallback
+
+    curr_inf = current_fighter.leader_inf.hero_name if current_fighter and current_fighter.leader_inf else None
+    curr_cav = current_fighter.leader_cav.hero_name if current_fighter and current_fighter.leader_cav else None
+    curr_arc = current_fighter.leader_arc.hero_name if current_fighter and current_fighter.leader_arc else None
+
+    inf_hero = _pick_leader("Inf", curr_inf, "Eric")
+    cav_hero = _pick_leader("Cav", curr_cav, "Petra")
+    arc_hero = _pick_leader("Arc", curr_arc, "Jaeger")
+
+    joiners: list[str] = []
+    if current_fighter and current_fighter.joiners:
+        joiners = [
+            j.hero_name for j in current_fighter.joiners
+            if j.hero_name not in (inf_hero, cav_hero, arc_hero)
+            and j.hero_name not in NON_COMBAT_FIRST_SKILL_HEROES
+        ]
+    if not joiners:
+        if roster.owned_heroes:
+            for c in ("Inf", "Cav", "Arc"):
+                for h in roster.owned_heroes.get(c, []):
+                    if (h in MYTHIC_HEROES or h in EPIC_HEROES) and (h not in NON_COMBAT_FIRST_SKILL_HEROES):
+                        if h not in (inf_hero, cav_hero, arc_hero) and h not in joiners:
+                            joiners.append(h)
+        elif roster.builds:
+            for h in roster.builds:
+                if (h in MYTHIC_HEROES or h in EPIC_HEROES) and (h not in NON_COMBAT_FIRST_SKILL_HEROES):
+                    if h not in (inf_hero, cav_hero, arc_hero) and h not in joiners:
+                        joiners.append(h)
+    joiners = joiners[:4]
+
+    troops = current_fighter.troops if current_fighter is not None else None
+
+    return roster_to_fighter(
+        roster,
+        inf_hero=inf_hero,
+        cav_hero=cav_hero,
+        arc_hero=arc_hero,
+        joiners=tuple(joiners),
+        troops=troops,
+        label=roster.name or default_label,
+    )
+
+
+def fighter_to_roster(
+    fighter: Fighter,
+    name: str | None = None,
+) -> AccountRoster:
+    """Translate a Fighter into an AccountRoster.
+
+    - Populates owned_heroes and builds from leaders and joiners.
+    - Maps leader gear into class_gear.
+    - Copies bonuses and buffs.
+    - Derives generation (max hero generation, default 8).
+    - Sets name = name or fighter.label.
+    """
+    roster_name = name or fighter.label or "Fighter"
+
+    owned_heroes: dict[str, list[str]] = {"Inf": [], "Cav": [], "Arc": []}
+    for cls, leader in (("Inf", fighter.leader_inf), ("Cav", fighter.leader_cav), ("Arc", fighter.leader_arc)):
+        if leader and leader.hero_name not in owned_heroes[cls]:
+            owned_heroes[cls].append(leader.hero_name)
+
+    for j in fighter.joiners:
+        try:
+            cls = hero_class(j.hero_name)
+        except KeyError:
+            continue
+        if cls in owned_heroes and j.hero_name not in owned_heroes[cls]:
+            owned_heroes[cls].append(j.hero_name)
+
+    builds: dict[str, HeroBuild] = {}
+    for leader in (fighter.leader_inf, fighter.leader_cav, fighter.leader_arc):
+        if leader:
+            builds[leader.hero_name] = HeroBuild(
+                level=leader.level,
+                widget_level=leader.widget_level,
+                skill_levels=leader.skill_levels,
+            )
+
+    for j in fighter.joiners:
+        if j.hero_name not in builds:
+            default_wl = 0 if j.hero_name in EPIC_HEROES else 10
+            builds[j.hero_name] = HeroBuild(
+                level=j.level,
+                widget_level=default_wl,
+            )
+
+    class_gear: dict[str, dict[str, HeroGearPiece]] = {}
+    for cls, leader in (("Inf", fighter.leader_inf), ("Cav", fighter.leader_cav), ("Arc", fighter.leader_arc)):
+        if leader and leader.gear:
+            class_gear[cls] = dict(leader.gear)
+
+    all_heroes = [
+        fighter.leader_inf.hero_name,
+        fighter.leader_cav.hero_name,
+        fighter.leader_arc.hero_name,
+    ] + [j.hero_name for j in fighter.joiners]
+    hero_gens = [HERO_GENERATION[h] for h in all_heroes if h in HERO_GENERATION]
+    generation = max(hero_gens) if hero_gens else 8
+
+    return AccountRoster(
+        name=roster_name,
+        generation=generation,
+        owned_heroes=owned_heroes,
+        builds=builds,
+        class_gear=class_gear,
+        bonuses=replace(fighter.bonuses),
+        buffs=replace(fighter.buffs),
+    )
+
+
 def apply_roster_to_benchmark(roster: AccountRoster) -> None:
     """Hydrate Benchmark tab session state from an AccountRoster."""
     try:
@@ -387,6 +528,8 @@ def extract_roster_from_benchmark(roster: AccountRoster) -> AccountRoster:
 
 
 __all__ = [
+    "account_roster_to_fighter",
+    "fighter_to_roster",
     "roster_to_search_space",
     "update_roster_from_search_space",
     "roster_to_fighter",

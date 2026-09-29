@@ -5,10 +5,13 @@ from kingshot_sim.io_pkg.rosters import AccountRoster
 from kingshot_sim.benchmark.runner import HeroBuild
 from kingshot_sim.config.fighter import (
     HeroGearPiece, BonusVector, TroopRoster, TroopGroup,
+    Fighter, LeaderHero, JoinerHero,
 )
 from kingshot_sim.config.buffs import Buffs
 from kingshot_sim.optimizer.search_space import SearchSpace, TroopPool, LeaderSpec
 from kingshot_sim.io_pkg.roster_bridge import (
+    account_roster_to_fighter,
+    fighter_to_roster,
     roster_to_search_space,
     update_roster_from_search_space,
     roster_to_fighter,
@@ -312,3 +315,195 @@ def test_roundtrip_search_space_consistency():
     assert updated.bonuses.inf_def_pct == 30.0
     assert updated.buffs.city_atk == 20
     assert updated.buffs.appoint_marshal is True
+
+
+def test_account_roster_to_fighter_complete():
+    roster = AccountRoster(
+        name="CompleteRoster",
+        generation=7,
+        owned_heroes={
+            "Inf": ["Amadeus", "Helga"],
+            "Cav": ["Margot", "Diana"],  # Diana is non-combat
+            "Arc": ["Yang", "Saul"],
+        },
+        builds={
+            "Amadeus": HeroBuild(level="MAX", widget_level=9, skill_levels=(5, 5, 5)),
+            "Margot": HeroBuild(level="4_2", widget_level=5, skill_levels=(4, 4, 3)),
+            "Yang": HeroBuild(level="MAX", widget_level=10, skill_levels=(5, 5, 4)),
+            "Helga": HeroBuild(level="4_0", widget_level=2),
+            "Saul": HeroBuild(level="MAX", widget_level=0),
+        },
+        class_gear={
+            "Inf": {"head": HeroGearPiece(slot="head", quality="mythic", level=60)},
+            "Cav": {"chest": HeroGearPiece(slot="chest", quality="red", level=100)},
+            "Arc": {"boots": HeroGearPiece(slot="boots", quality="red", level=100)},
+        },
+        bonuses=BonusVector(squad_atk_pct=40.0, inf_def_pct=20.0),
+        buffs=Buffs(city_atk=20, appoint_marshal=True),
+    )
+
+    fighter = account_roster_to_fighter(roster)
+
+    assert fighter.label == "CompleteRoster"
+    # Leaders
+    assert fighter.leader_inf.hero_name == "Amadeus"
+    assert fighter.leader_inf.level == "MAX"
+    assert fighter.leader_inf.widget_level == 9
+    assert fighter.leader_inf.skill_levels == (5, 5, 5)
+    assert fighter.leader_inf.gear["head"].level == 60
+
+    assert fighter.leader_cav.hero_name == "Margot"
+    assert fighter.leader_cav.level == "4_2"
+    assert fighter.leader_cav.widget_level == 5
+    assert fighter.leader_cav.skill_levels == (4, 4, 3)
+    assert fighter.leader_cav.gear["chest"].level == 100
+
+    assert fighter.leader_arc.hero_name == "Yang"
+    assert fighter.leader_arc.level == "MAX"
+    assert fighter.leader_arc.widget_level == 10
+    assert fighter.leader_arc.skill_levels == (5, 5, 4)
+    assert fighter.leader_arc.gear["boots"].level == 100
+
+    # Joiners: should pick up to 4 eligible combat joiners (excluding leaders and Diana)
+    joiner_names = [j.hero_name for j in fighter.joiners]
+    assert "Diana" not in joiner_names
+    assert "Amadeus" not in joiner_names
+    assert "Margot" not in joiner_names
+    assert "Yang" not in joiner_names
+    assert "Helga" in joiner_names
+    assert "Saul" in joiner_names
+    assert len(fighter.joiners) <= 4
+
+    # Check joiner build levels
+    helga_joiner = next(j for j in fighter.joiners if j.hero_name == "Helga")
+    assert helga_joiner.level == "4_0"
+
+    # Bonuses & Buffs
+    assert fighter.bonuses.squad_atk_pct == 40.0
+    assert fighter.bonuses.inf_def_pct == 20.0
+    assert fighter.buffs.city_atk == 20
+    assert fighter.buffs.appoint_marshal is True
+
+    # Troops default
+    assert fighter.troops == TroopRoster()
+
+
+def test_account_roster_to_fighter_preserves_troops():
+    custom_troops = TroopRoster(
+        infantry=(TroopGroup(tier="T10", count=60_000),),
+        cavalry=(TroopGroup(tier="T10", count=40_000),),
+        archer=(TroopGroup(tier="T10", count=50_000),),
+    )
+    existing_fighter = Fighter(
+        label="Existing",
+        leader_inf=LeaderHero(hero_name="Helga", level="MAX"),
+        leader_cav=LeaderHero(hero_name="Margot", level="MAX"),
+        leader_arc=LeaderHero(hero_name="Yang", level="MAX"),
+        joiners=(JoinerHero(hero_name="Saul"),),
+        bonuses=BonusVector(),
+        troops=custom_troops,
+    )
+
+    roster = AccountRoster(
+        name="NewProfile",
+        owned_heroes={
+            "Inf": ["Amadeus", "Helga"],
+            "Cav": ["Margot"],
+            "Arc": ["Yang"],
+        },
+        builds={
+            "Helga": HeroBuild(level="MAX", widget_level=8),
+        },
+    )
+
+    # Calling with current_fighter should preserve troops and retain current_fighter's leader "Helga"
+    fighter = account_roster_to_fighter(roster, current_fighter=existing_fighter)
+    assert fighter.troops == custom_troops
+    assert fighter.troops.total_count() == 150_000
+    assert fighter.leader_inf.hero_name == "Helga"
+    assert fighter.leader_inf.widget_level == 8
+    # Joiner from current_fighter preserved
+    assert [j.hero_name for j in fighter.joiners] == ["Saul"]
+
+
+def test_fighter_to_roster_roundtrip():
+    gear_inf = {"head": HeroGearPiece(slot="head", quality="mythic", level=70)}
+    gear_cav = {"chest": HeroGearPiece(slot="chest", quality="red", level=100)}
+    gear_arc = {"boots": HeroGearPiece(slot="boots", quality="red", level=100)}
+
+    fighter = Fighter(
+        label="OriginalFighter",
+        leader_inf=LeaderHero(
+            hero_name="Charles",  # Gen 7
+            level="MAX",
+            widget_level=10,
+            skill_levels=(5, 5, 5),
+            gear=gear_inf,
+        ),
+        leader_cav=LeaderHero(
+            hero_name="Petra",  # Gen 3
+            level="4_3",
+            widget_level=6,
+            skill_levels=(4, 3, 2),
+            gear=gear_cav,
+        ),
+        leader_arc=LeaderHero(
+            hero_name="Jaeger",  # Gen 3
+            level="MAX",
+            widget_level=8,
+            skill_levels=(5, 4, 3),
+            gear=gear_arc,
+        ),
+        joiners=(
+            JoinerHero(hero_name="Saul", level="MAX"),
+            JoinerHero(hero_name="Chenko", level="4_1"),
+        ),
+        bonuses=BonusVector(squad_atk_pct=65.0, cav_let_pct=15.0),
+        buffs=Buffs(city_atk=20, appoint_marshal=True),
+        troops=TroopRoster(infantry=(TroopGroup(tier="T10", count=50_000),)),
+    )
+
+    # 1. Test fighter_to_roster with custom name
+    roster = fighter_to_roster(fighter, name="ExportedProfile")
+    assert roster.name == "ExportedProfile"
+    assert roster.generation == 7  # Derived from Charles (Gen 7)
+    assert "Charles" in roster.owned_heroes["Inf"]
+    assert "Petra" in roster.owned_heroes["Cav"]
+    assert "Jaeger" in roster.owned_heroes["Arc"]
+    assert "Saul" in roster.owned_heroes["Arc"]
+    assert "Chenko" in roster.owned_heroes["Cav"]
+
+    assert roster.builds["Charles"].widget_level == 10
+    assert roster.builds["Charles"].skill_levels == (5, 5, 5)
+    assert roster.builds["Petra"].level == "4_3"
+    assert roster.builds["Petra"].widget_level == 6
+    assert roster.builds["Saul"].level == "MAX"
+    assert roster.builds["Chenko"].level == "4_1"
+    assert roster.builds["Chenko"].widget_level == 0  # Chenko is epic
+
+    assert roster.class_gear["Inf"]["head"].level == 70
+    assert roster.class_gear["Cav"]["chest"].level == 100
+    assert roster.class_gear["Arc"]["boots"].level == 100
+    assert roster.bonuses.squad_atk_pct == 65.0
+    assert roster.bonuses.cav_let_pct == 15.0
+    assert roster.buffs.city_atk == 20
+    assert roster.buffs.appoint_marshal is True
+
+    # 2. Test fighter_to_roster default name fallback to fighter.label
+    roster_no_name = fighter_to_roster(fighter)
+    assert roster_no_name.name == "OriginalFighter"
+
+    # 3. Roundtrip back to fighter preserving current_fighter troops
+    roundtrip_fighter = account_roster_to_fighter(roster, current_fighter=fighter)
+    assert roundtrip_fighter.label == "ExportedProfile"
+    assert roundtrip_fighter.leader_inf.hero_name == "Charles"
+    assert roundtrip_fighter.leader_inf.widget_level == 10
+    assert roundtrip_fighter.leader_inf.gear["head"].level == 70
+    assert roundtrip_fighter.leader_cav.hero_name == "Petra"
+    assert roundtrip_fighter.leader_cav.widget_level == 6
+    assert roundtrip_fighter.leader_arc.hero_name == "Jaeger"
+    assert roundtrip_fighter.leader_arc.widget_level == 8
+    assert roundtrip_fighter.troops == fighter.troops
+    assert roundtrip_fighter.bonuses == fighter.bonuses
+    assert roundtrip_fighter.buffs == fighter.buffs
+
