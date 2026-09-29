@@ -221,3 +221,53 @@ def test_render_full_settings_tab_apptest(tmp_path, monkeypatch):
     at = AppTest.from_function(_render_full_settings_app)
     at.run()
     assert not at.exception, f"settings.render() crashed: {at.exception}"
+
+
+def test_save_profile_button_no_crash(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    at = AppTest.from_function(_render_account_roster_section_app)
+    at.run()
+    assert not at.exception
+    at.text_input(key="settings_roster_name_input").set_value("NewSavedProfile").run()
+    assert not at.exception
+    at.button(key="settings_roster_save_btn").click().run()
+    assert not at.exception
+    assert "NewSavedProfile" in persistence.list_rosters()
+
+
+def test_save_as_profile_button_no_crash(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    r = AccountRoster(name="BaseProfile", generation=6)
+    persistence.save_roster(r, "BaseProfile")
+
+    def _app():
+        import streamlit as st
+        from kingshot_sim.webui.tabs.settings import render_account_roster_section
+        st.session_state["_ks_active_roster"] = "BaseProfile"
+        render_account_roster_section()
+
+    at = AppTest.from_function(_app)
+    at.run()
+    assert not at.exception
+    at.text_input(key="settings_roster_save_as_input").set_value("BaseProfile Copy").run()
+    assert not at.exception
+    at.button(key="settings_roster_save_as_btn").click().run()
+    assert not at.exception
+    assert "BaseProfile_Copy" in persistence.list_rosters()
+
+
+def test_full_settings_render_save_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    at = AppTest.from_function(_render_full_settings_app)
+    at.run()
+    assert not at.exception
+    at.text_input(key="settings_roster_name_input").set_value("FullSettingsSave").run()
+    assert not at.exception
+    at.button(key="settings_roster_save_btn").click().run()
+    assert not at.exception
+    assert "FullSettingsSave" in persistence.list_rosters()
+
+

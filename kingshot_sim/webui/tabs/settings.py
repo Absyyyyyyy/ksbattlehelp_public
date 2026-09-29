@@ -112,6 +112,7 @@ def render_account_roster_section() -> None:
     pending_sel = st.session_state.pop("_pending_roster_select", None)
     if pending_sel and pending_sel in options:
         st.session_state["settings_roster_select"] = pending_sel
+        default_idx = options.index(pending_sel)
     elif st.session_state.get("settings_roster_select") not in options:
         st.session_state.pop("settings_roster_select", None)
 
@@ -218,14 +219,11 @@ def render_account_roster_section() -> None:
             raw_content = uploaded_file.getvalue().decode("utf-8", errors="replace")
             try:
                 imported_roster = persistence.roster_from_json(raw_content)
-                persistence.save_roster(imported_roster, imported_roster.name)
-                st.session_state["_ks_active_roster"] = imported_roster.name
-                st.session_state["_pending_roster_select"] = imported_roster.name
-                try:
-                    st.session_state["settings_roster_select"] = imported_roster.name
-                except Exception:
-                    pass
-                st.session_state["_settings_active_roster_loaded"] = imported_roster.name
+                path = persistence.save_roster(imported_roster, imported_roster.name)
+                saved_stem = path.stem
+                st.session_state["_ks_active_roster"] = saved_stem
+                st.session_state["_pending_roster_select"] = saved_stem
+                st.session_state["_settings_active_roster_loaded"] = saved_stem
                 st.session_state["_settings_roster_obj"] = imported_roster
                 for k in list(st.session_state.keys()):
                     if (k.startswith("settings_roster_") or k.startswith("settings_roster_gear_") or
@@ -429,24 +427,26 @@ def render_account_roster_section() -> None:
 
     if save_clicked or bottom_save_clicked:
         save_name = current_roster.name
-        persistence.save_roster(current_roster, save_name)
-        st.session_state["_ks_active_roster"] = save_name
-        st.session_state["_settings_active_roster_loaded"] = save_name
+        path = persistence.save_roster(current_roster, save_name)
+        saved_stem = path.stem
+        st.session_state["_ks_active_roster"] = saved_stem
+        st.session_state["_settings_active_roster_loaded"] = saved_stem
         st.session_state["_settings_roster_obj"] = current_roster
-        st.session_state["settings_roster_select"] = save_name
-        st.success(f"Profile '{save_name}' saved successfully!")
+        st.session_state["_pending_roster_select"] = saved_stem
+        st.success(f"Profile '{saved_stem}' saved successfully!")
         st.rerun()
 
     if save_as_clicked:
         new_name = save_as_name.strip()
         if new_name:
             current_roster.name = new_name
-            persistence.save_roster(current_roster, new_name)
-            st.session_state["_ks_active_roster"] = new_name
-            st.session_state["_settings_active_roster_loaded"] = new_name
+            path = persistence.save_roster(current_roster, new_name)
+            saved_stem = path.stem
+            st.session_state["_ks_active_roster"] = saved_stem
+            st.session_state["_settings_active_roster_loaded"] = saved_stem
             st.session_state["_settings_roster_obj"] = current_roster
-            st.session_state["settings_roster_select"] = new_name
-            st.success(f"Profile saved as '{new_name}'!")
+            st.session_state["_pending_roster_select"] = saved_stem
+            st.success(f"Profile saved as '{saved_stem}'!")
             st.rerun()
 
     if del_clicked and not is_new:
@@ -455,7 +455,7 @@ def render_account_roster_section() -> None:
         st.session_state.pop("_settings_active_roster_loaded", None)
         if st.session_state.get("_ks_active_roster") == selected_profile:
             st.session_state.pop("_ks_active_roster", None)
-        st.session_state.pop("settings_roster_select", None)
+        st.session_state["_pending_roster_select"] = create_new_label
         st.success(f"Profile '{selected_profile}' deleted.")
         st.rerun()
 
@@ -468,13 +468,13 @@ def render_account_roster_section() -> None:
                 r_cols[0].markdown(f"**{r_name}**")
                 if r_cols[1].button("Load", key=f"settings_load_roster_list_{r_name}"):
                     st.session_state["_ks_active_roster"] = r_name
-                    st.session_state["settings_roster_select"] = r_name
+                    st.session_state["_pending_roster_select"] = r_name
                     st.session_state["_settings_active_roster_loaded"] = r_name
                     st.session_state["_settings_roster_obj"] = persistence.load_roster(r_name)
                     for k in list(st.session_state.keys()):
                         if (k.startswith("settings_roster_") or k.startswith("settings_roster_gear_") or
                             k.startswith("settings_roster_bonuses_") or k.startswith("settings_roster_buffs_")):
-                            if k != "settings_roster_select":
+                            if k not in ("settings_roster_select", "_pending_roster_select"):
                                 st.session_state.pop(k, None)
                     st.rerun()
                 if r_cols[2].button("Delete", key=f"settings_del_roster_list_{r_name}"):
@@ -483,8 +483,8 @@ def render_account_roster_section() -> None:
                         st.session_state.pop("_ks_active_roster", None)
                         st.session_state.pop("_settings_active_roster_loaded", None)
                         st.session_state.pop("_settings_roster_obj", None)
-                    if st.session_state.get("settings_roster_select") == r_name:
-                        st.session_state.pop("settings_roster_select", None)
+                    if selected_profile == r_name:
+                        st.session_state["_pending_roster_select"] = create_new_label
                     st.rerun()
 
 
