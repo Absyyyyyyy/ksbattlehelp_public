@@ -1442,19 +1442,23 @@ def fighter_form_with_mode(
     key_prefix: str,
     side: str = "attacker",
     allow_easy_mode: bool = True,
+    roster: Optional[Any] = None,
+    builds: Optional[dict[str, Any]] = None,
 ) -> Fighter:
     if not allow_easy_mode:
         from .forms import fighter_form
-        return fighter_form(default, key_prefix=key_prefix, side=side)
+        return fighter_form(default, key_prefix=key_prefix, side=side, roster=roster, builds=builds)
 
     toggle_key = f"{key_prefix}_input_mode"
     current = st.session_state.get(toggle_key, "Easy")
+    radio_key = f"{toggle_key}_radio"
+    radio_idx = None if radio_key in st.session_state else (0 if current.startswith("Easy") else 1)
     mode = st.radio(
         "Input mode",
         ["Easy (upload screenshot)", "Advanced (manual entry)"],
-        index=0 if current.startswith("Easy") else 1,
+        index=radio_idx,
         horizontal=True,
-        key=f"{toggle_key}_radio",
+        key=radio_key,
         label_visibility="collapsed",
     )
     st.session_state[toggle_key] = "Easy" if mode.startswith("Easy") else "Advanced"
@@ -1469,6 +1473,9 @@ def fighter_form_with_mode(
         st.session_state[gen_key] = 0
     gen = int(st.session_state[gen_key])
     effective_prefix = f"{key_prefix}_g{gen}"
+
+    if roster is None:
+        roster = st.session_state.get(f"{key_prefix}_roster")
 
     from .forms import fighter_form
 
@@ -1496,7 +1503,7 @@ def fighter_form_with_mode(
         if st.session_state.pop(f"{key_prefix}_scroll_to_banner", False):
             _scroll_to(banner_anchor)
 
-    return fighter_form(default, effective_prefix, side=side)
+    return fighter_form(default, effective_prefix, side=side, roster=roster, builds=builds)
 
 
 _BONUS_FIELDS: tuple[str, ...] = (

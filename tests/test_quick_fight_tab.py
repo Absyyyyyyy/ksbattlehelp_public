@@ -246,3 +246,60 @@ def test_quick_fight_run_battle_after_loading_rosters(tmp_path, monkeypatch):
     # Run deterministic battle
     at.button(key="qf_run").click().run()
     assert not at.exception
+
+
+def test_quick_fight_hero_switch_updates_level_widget_skills(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    monkeypatch.setattr(persistence, "_PROFILES_DIR", tmp_path / "profiles")
+    monkeypatch.setattr(persistence, "_SEARCH_DIR", tmp_path / "searches")
+
+    roster = AccountRoster(
+        name="SwitchAttacker",
+        generation=7,
+        owned_heroes={"Inf": ["Helga", "Amadeus"], "Cav": ["Margot"], "Arc": ["Yang"]},
+        builds={
+            "Helga": HeroBuild(level="4_2", widget_level=6, skill_levels=(4, 4, 3)),
+            "Amadeus": HeroBuild(level="3_0", widget_level=2, skill_levels=(3, 3, 2)),
+            "Margot": HeroBuild(level="MAX", widget_level=8),
+            "Yang": HeroBuild(level="MAX", widget_level=10),
+        },
+    )
+    persistence.save_roster(roster, "SwitchAttacker")
+
+    at = AppTest.from_function(_render_quick_fight_app)
+    at.run()
+    assert not at.exception
+
+    # Load SwitchAttacker
+    at.selectbox(key="qf_load_att_roster").select("SwitchAttacker").run()
+    at.button(key="qf_btn_load_att").click().run()
+    assert not at.exception
+
+    # Initially Helga
+    assert at.selectbox(key="qf_att_g1_li_name").value == "Helga"
+    assert at.selectbox(key="qf_att_g1_li_level").value == "4_2"
+    assert at.slider(key="qf_att_g1_li_widget").value == 6
+    assert at.selectbox(key="qf_att_g1_li_sk1_lvl").value == 4
+    assert at.selectbox(key="qf_att_g1_li_sk2_lvl").value == 4
+    assert at.selectbox(key="qf_att_g1_li_sk3_lvl").value == 3
+
+    # Switch Infantry leader to Amadeus
+    at.selectbox(key="qf_att_g1_li_name").select("Amadeus").run()
+    assert not at.exception
+
+    # Immediate update of level, widget, and skills to Amadeus build
+    assert at.selectbox(key="qf_att_g1_li_name").value == "Amadeus"
+    assert at.selectbox(key="qf_att_g1_li_level").value == "3_0"
+    assert at.slider(key="qf_att_g1_li_widget").value == 2
+    assert at.selectbox(key="qf_att_g1_li_sk1_lvl").value == 3
+    assert at.selectbox(key="qf_att_g1_li_sk2_lvl").value == 3
+    assert at.selectbox(key="qf_att_g1_li_sk3_lvl").value == 2
+
+    # Verify session fighter state matches
+    att = at.session_state.get("qf_attacker")
+    assert att.leader_inf.hero_name == "Amadeus"
+    assert att.leader_inf.level == "3_0"
+    assert att.leader_inf.widget_level == 2
+    assert att.leader_inf.skill_levels == (3, 3, 2)
+

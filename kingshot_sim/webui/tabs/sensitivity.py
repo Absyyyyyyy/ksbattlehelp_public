@@ -44,6 +44,7 @@ def render() -> None:
                     st.session_state.sn_attacker = account_roster_to_fighter(
                         loaded_r, curr, default_label="Attacker",
                     )
+                    st.session_state["sn_att_roster"] = loaded_r
                     gen_key = "sn_att_gen"
                     st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
                     st.rerun()
@@ -57,6 +58,7 @@ def render() -> None:
                     st.session_state.sn_defender = account_roster_to_fighter(
                         loaded_r, curr, default_label="Defender",
                     )
+                    st.session_state["sn_def_roster"] = loaded_r
                     gen_key = "sn_def_gen"
                     st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
                     st.rerun()
@@ -73,6 +75,7 @@ def render() -> None:
                     st.session_state.sn_attacker,
                     key_prefix=f"sn_att_g{att_gen}",
                     side="attacker",
+                    roster=st.session_state.get("sn_att_roster"),
                 )
                 st.session_state.sn_attacker = attacker
             except Exception as e:
@@ -85,6 +88,7 @@ def render() -> None:
                     st.session_state.sn_defender,
                     key_prefix=f"sn_def_g{def_gen}",
                     side="defender",
+                    roster=st.session_state.get("sn_def_roster"),
                 )
                 st.session_state.sn_defender = defender
             except Exception as e:

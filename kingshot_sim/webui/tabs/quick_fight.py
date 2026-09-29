@@ -40,6 +40,7 @@ def render() -> None:
                     st.session_state.qf_attacker = account_roster_to_fighter(
                         loaded_r, curr, default_label="Attacker",
                     )
+                    st.session_state["qf_att_roster"] = loaded_r
                     gen_key = "qf_att_form_gen"
                     st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
                     st.session_state["qf_att_input_mode"] = "Advanced"
@@ -55,6 +56,7 @@ def render() -> None:
                     st.session_state.qf_defender = account_roster_to_fighter(
                         loaded_r, curr, default_label="Defender",
                     )
+                    st.session_state["qf_def_roster"] = loaded_r
                     gen_key = "qf_def_form_gen"
                     st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
                     st.session_state["qf_def_input_mode"] = "Advanced"
@@ -67,7 +69,12 @@ def render() -> None:
         components.render_subheading("Attacker")
         _render_trio_strip(st.session_state.qf_attacker)
         try:
-            attacker = fighter_form_with_mode(st.session_state.qf_attacker, key_prefix="qf_att", side="attacker")
+            attacker = fighter_form_with_mode(
+                st.session_state.qf_attacker,
+                key_prefix="qf_att",
+                side="attacker",
+                roster=st.session_state.get("qf_att_roster"),
+            )
             st.session_state.qf_attacker = attacker
         except Exception as e:
             st.error(f"Invalid attacker: {e}")
@@ -102,7 +109,12 @@ def render() -> None:
         components.render_subheading("Defender")
         _render_trio_strip(st.session_state.qf_defender)
         try:
-            defender = fighter_form_with_mode(st.session_state.qf_defender, key_prefix="qf_def", side="defender")
+            defender = fighter_form_with_mode(
+                st.session_state.qf_defender,
+                key_prefix="qf_def",
+                side="defender",
+                roster=st.session_state.get("qf_def_roster"),
+            )
             st.session_state.qf_defender = defender
         except Exception as e:
             st.error(f"Invalid defender: {e}")
