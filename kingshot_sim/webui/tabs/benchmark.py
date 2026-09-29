@@ -1,7 +1,11 @@
 from __future__ import annotations
 import streamlit as st
 
-from kingshot_sim.webui import components, runtime_stats, search_runner
+from kingshot_sim.webui import components, runtime_stats, search_runner, persistence
+from kingshot_sim.io_pkg.roster_bridge import (
+    apply_roster_to_benchmark,
+    extract_roster_from_benchmark,
+)
 from kingshot_sim.benchmark.runner import (
     BenchSettings, HeroBuild, rank_generation,
 )
@@ -11,9 +15,107 @@ from kingshot_sim.benchmark.economy import F2P_SHARDS_PER_GEN
 from kingshot_sim.data.reference import (
     hero_class, heroes_up_to_generation, MAX_GENERATION, EPIC_HEROES, VALID_LEVELS,
 )
+from kingshot_sim.io_pkg.rosters import (
+    BenchmarkRoster,
+    roster_to_json,
+    roster_from_json,
+    _safe_star_subtier_from_level,
+)
 
 def _code(star: int, tier: int) -> str:
     return "MAX" if int(star) >= 5 else f"{int(star)}_{int(tier)}"
+
+
+def _extract_roster_from_session(
+    name: str,
+    gen: int,
+    builds: dict[str, HeroBuild],
+    owned: dict[str, list[str]],
+) -> BenchmarkRoster:
+    from kingshot_sim.data.reference import HERO_GENERATION
+
+    master_owned = st.session_state.get("_bm_master_owned", {})
+    clean_owned: dict[str, list[str]] = {}
+    if master_owned and any(master_owned.values()):
+        for c in ("Inf", "Cav", "Arc"):
+            combined = list(master_owned.get(c, []))
+            if owned and c in owned:
+                for h in owned[c]:
+                    if h not in combined:
+                        combined.append(h)
+            clean_owned[c] = combined
+    else:
+        clean_owned = {c: list(h_list) for c, h_list in owned.items()} if owned else {}
+        if not any(clean_owned.values()):
+            clean_owned = {
+                c: list(st.session_state.get(f"_bm_own_{c}", []))
+                for c in ("Inf", "Cav", "Arc")
+                if st.session_state.get(f"_bm_own_{c}")
+            }
+
+    master_builds = st.session_state.setdefault("_bm_master_builds", {})
+    b_copy = dict(master_builds)
+    if builds:
+        b_copy.update(builds)
+
+    for cls, h_list in clean_owned.items():
+        for h in h_list:
+            if f"_bm_star_{h}" in st.session_state and (not builds or h not in builds):
+                star = st.session_state[f"_bm_star_{h}"]
+                tier = st.session_state.get(f"_bm_tier_{h}", 0)
+                wl = 0 if h in EPIC_HEROES else st.session_state.get(f"_bm_wl_{h}", _WIDGET_DEFAULT)
+                h_build = HeroBuild(level=_code(star, tier), widget_level=int(wl))
+                b_copy[h] = h_build
+                master_builds[h] = h_build
+            elif h not in b_copy:
+                star = st.session_state.get(f"_bm_star_{h}", _STAR_DEFAULT)
+                tier = st.session_state.get(f"_bm_tier_{h}", 0)
+                wl = 0 if h in EPIC_HEROES else st.session_state.get(f"_bm_wl_{h}", _WIDGET_DEFAULT)
+                h_build = HeroBuild(level=_code(star, tier), widget_level=int(wl))
+                b_copy[h] = h_build
+                master_builds[h] = h_build
+
+    master_gen = st.session_state.get("_bm_master_gen")
+    roster_gen = max(master_gen, gen) if master_gen is not None else gen
+    highest_hero_gen = max(
+        (HERO_GENERATION.get(h, 1) for h_list in clean_owned.values() for h in h_list),
+        default=1,
+    )
+    final_gen = max(roster_gen, highest_hero_gen)
+
+    return BenchmarkRoster(
+        name=name,
+        generation=final_gen,
+        owned_heroes=clean_owned,
+        builds=b_copy,
+    )
+
+
+def _load_roster_into_session(roster: BenchmarkRoster) -> None:
+    st.session_state["_bm_active_roster"] = persistence._safe_name(roster.name)
+    st.session_state["_bm_master_gen"] = roster.generation
+    st.session_state["_bm_pending_gen"] = roster.generation
+    try:
+        st.session_state["_bm_gen"] = roster.generation
+    except Exception:
+        pass
+    st.session_state["_bm_last_gen"] = roster.generation
+
+    master_owned = {c: list(roster.owned_heroes.get(c, [])) for c in ("Inf", "Cav", "Arc")}
+    st.session_state["_bm_master_owned"] = master_owned
+    for cls in ("Inf", "Cav", "Arc"):
+        st.session_state[f"_bm_own_{cls}"] = list(master_owned[cls])
+
+    master_builds: dict[str, HeroBuild] = dict(roster.builds)
+    st.session_state["_bm_master_builds"] = master_builds
+    for h, b in roster.builds.items():
+        star, tier = _safe_star_subtier_from_level(b.level)
+        st.session_state[f"_bm_star_{h}"] = int(star)
+        st.session_state[f"_bm_tier_{h}"] = int(tier)
+        st.session_state[f"_bm_wl_{h}"] = int(b.widget_level)
+
+    st.session_state.pop("_bm_result", None)
+    st.session_state.pop("_bm_passes_cache", None)
 
 
 _STAR_DEFAULT = 5
@@ -111,9 +213,9 @@ def _ocr_import(gen: int, options_by_cls: dict[str, list[str]]) -> None:
             st.image(str(_ex), width=260,
                      caption="Example. The in-game 'Heroes' grid, sorted by Quality")
         up = st.file_uploader("Heroes screenshot", type=["png", "jpg", "jpeg"],
-                              key=f"_bm_ocr_up_{gen}", label_visibility="collapsed")
+                              key="_bm_ocr_up", label_visibility="collapsed")
         if up is not None and st.button("Read screenshot", type="primary",
-                                        key=f"_bm_ocr_go_{gen}"):
+                                        key="_bm_ocr_go"):
             from PIL import Image
             from kingshot_sim.easy_mode.ocr_hero_roster import ocr_hero_roster
             try:
@@ -126,25 +228,197 @@ def _ocr_import(gen: int, options_by_cls: dict[str, list[str]]) -> None:
                 return
             valid = {h for opts in options_by_cls.values() for h in opts}
             picked: dict[str, list[str]] = {c: [] for c in ("Inf", "Cav", "Arc")}
+            master_builds = st.session_state.setdefault("_bm_master_builds", {})
             for c in res.cells:
                 if c.hero_name in valid and c.klass in picked \
                         and c.hero_name not in picked[c.klass]:
                     picked[c.klass].append(c.hero_name)
                     star = max(0, min(5, int(c.star)))
                     sub = max(0, min(5, int(getattr(c, "sub_tier", 0))))
-                    st.session_state[f"_bm_star_{c.hero_name}_{gen}"] = star
-                    st.session_state[f"_bm_tier_{c.hero_name}_{gen}"] = sub
+                    st.session_state[f"_bm_star_{c.hero_name}"] = star
+                    st.session_state[f"_bm_tier_{c.hero_name}"] = sub
+                    wl = master_builds.get(c.hero_name).widget_level if c.hero_name in master_builds else (0 if c.hero_name in EPIC_HEROES else _WIDGET_DEFAULT)
+                    master_builds[c.hero_name] = HeroBuild(level=_code(star, sub), widget_level=int(wl))
+            n = sum(len(v) for v in picked.values())
+            master_owned = st.session_state.setdefault("_bm_master_owned", {})
             for c in ("Inf", "Cav", "Arc"):
                 if picked[c]:
-                    st.session_state[f"_bm_own_{c}_{gen}"] = picked[c]
-            n = sum(len(v) for v in picked.values())
-            st.session_state[f"_bm_ocr_msg_{gen}"] = (
+                    st.session_state[f"_bm_own_{c}"] = picked[c]
+                    visible_set = set(options_by_cls[c])
+                    hidden = [h for h in master_owned.get(c, []) if h not in visible_set]
+                    master_owned[c] = list(picked[c]) + hidden
+            st.session_state["_bm_ocr_msg"] = (
                 f"Pre-filled {n} hero(es) from the screenshot. Confirm below."
                 if n else "No known heroes matched. Pick them manually below.")
             st.rerun()
-    msg = st.session_state.get(f"_bm_ocr_msg_{gen}")
+    msg = st.session_state.get("_bm_ocr_msg")
     if msg:
         _callout(f"{msg}", tone="ok")
+
+
+def _render_roster_manager(
+    gen: int,
+    builds: dict[str, HeroBuild] | None = None,
+    owned: dict[str, list[str]] | None = None,
+) -> None:
+    roster_msg = st.session_state.pop("_bm_roster_msg", None)
+    if roster_msg:
+        try:
+            st.toast(roster_msg)
+        except Exception:
+            _callout(roster_msg, tone="ok")
+
+    master_owned = st.session_state.get("_bm_master_owned", {})
+    master_builds = st.session_state.get("_bm_master_builds", {})
+
+    if owned is None:
+        if master_owned and any(master_owned.values()):
+            owned = {c: list(master_owned.get(c, [])) for c in ("Inf", "Cav", "Arc")}
+        else:
+            owned = {
+                c: [h for h in st.session_state.get(f"_bm_own_{c}", []) if hero_class(h) == c]
+                for c in ("Inf", "Cav", "Arc")
+            }
+    if builds is None:
+        builds = dict(master_builds)
+        for cls, h_list in owned.items():
+            for h in h_list:
+                if h not in builds:
+                    star = st.session_state.get(f"_bm_star_{h}", _STAR_DEFAULT)
+                    tier = st.session_state.get(f"_bm_tier_{h}", 0)
+                    wl = 0 if h in EPIC_HEROES else st.session_state.get(f"_bm_wl_{h}", _WIDGET_DEFAULT)
+                    builds[h] = HeroBuild(level=_code(star, tier), widget_level=int(wl))
+
+    saved_rosters = persistence.list_rosters()
+    options = ["[Custom / Unsaved]"] + saved_rosters
+    active_roster = st.session_state.get("_bm_active_roster", "[Custom / Unsaved]")
+    if active_roster not in options:
+        active_roster = "[Custom / Unsaved]"
+        st.session_state["_bm_active_roster"] = active_roster
+
+    c_sel, c_save, c_del, c_exp = st.columns([3, 1, 1, 1.2])
+    with c_sel:
+        idx = options.index(active_roster)
+        selected = st.selectbox(
+            "Roster",
+            options=options,
+            index=idx,
+            label_visibility="collapsed",
+            help="Select a saved roster or customize.",
+        )
+        if selected != active_roster:
+            if selected != "[Custom / Unsaved]":
+                safe_name = persistence._safe_name(selected)
+                loaded = persistence.load_roster(safe_name)
+                _load_roster_into_session(loaded)
+                st.session_state["_bm_active_roster"] = safe_name
+            else:
+                st.session_state["_bm_active_roster"] = "[Custom / Unsaved]"
+            st.rerun()
+
+    with c_save:
+        if st.button("Save", key="_bm_save_btn", width="stretch"):
+            if active_roster != "[Custom / Unsaved]":
+                safe_name = persistence._safe_name(active_roster)
+                r = _extract_roster_from_session(safe_name, gen, builds, owned)
+                persistence.save_roster(r, safe_name)
+                st.session_state["_bm_active_roster"] = safe_name
+                st.session_state["_bm_roster_msg"] = f"Saved roster '{safe_name}'."
+                st.rerun()
+            else:
+                st.session_state["_bm_prompt_save_name"] = True
+                st.rerun()
+
+    with c_del:
+        if st.button("Delete", key="_bm_delete_btn", width="stretch",
+                     disabled=(active_roster == "[Custom / Unsaved]")):
+            if active_roster != "[Custom / Unsaved]":
+                persistence.delete_roster(active_roster)
+                st.session_state["_bm_active_roster"] = "[Custom / Unsaved]"
+                st.session_state["_bm_roster_msg"] = f"Deleted roster '{active_roster}'."
+                st.rerun()
+
+    with c_exp:
+        current_name = active_roster if active_roster != "[Custom / Unsaved]" else "benchmark_roster"
+        export_roster = _extract_roster_from_session(current_name, gen, builds, owned)
+        export_json = roster_to_json(export_roster)
+        st.download_button(
+            "Export JSON",
+            data=export_json,
+            file_name=f"{current_name}.json",
+            mime="application/json",
+            key="_bm_export_btn",
+            width="stretch",
+        )
+
+    if st.session_state.get("_bm_prompt_save_name"):
+        c_prompt_in, c_prompt_btn, c_prompt_cancel = st.columns([3, 1, 1])
+        with c_prompt_in:
+            prompt_name = st.text_input("Name for this roster", key="_bm_prompt_name",
+                                        label_visibility="collapsed", placeholder="Enter roster name...")
+        with c_prompt_btn:
+            if st.button("Confirm", key="_bm_prompt_confirm", type="primary", width="stretch"):
+                p_name = prompt_name.strip()
+                if not p_name:
+                    st.error("Please enter a valid roster name.")
+                elif p_name == "[Custom / Unsaved]":
+                    st.error("Cannot use reserved name '[Custom / Unsaved]'. Please enter a different name.")
+                else:
+                    safe_name = persistence._safe_name(p_name)
+                    r = _extract_roster_from_session(safe_name, gen, builds, owned)
+                    persistence.save_roster(r, safe_name)
+                    st.session_state["_bm_active_roster"] = safe_name
+                    st.session_state.pop("_bm_prompt_save_name", None)
+                    st.session_state["_bm_roster_msg"] = f"Saved roster '{safe_name}'."
+                    st.rerun()
+        with c_prompt_cancel:
+            if st.button("Cancel", key="_bm_prompt_cancel_btn", width="stretch"):
+                st.session_state.pop("_bm_prompt_save_name", None)
+                st.rerun()
+
+    c_sub1, c_sub2 = st.columns(2)
+    with c_sub1:
+        with st.expander("Save As..."):
+            save_as_col_in, save_as_col_btn = st.columns([2.5, 1])
+            with save_as_col_in:
+                new_roster_name = st.text_input("New roster name", key="_bm_save_as_name",
+                                                label_visibility="collapsed", placeholder="New roster name...")
+            with save_as_col_btn:
+                if st.button("Save As", key="_bm_save_as_btn", width="stretch"):
+                    name_clean = new_roster_name.strip()
+                    if not name_clean:
+                        st.error("Please enter a roster name.")
+                    elif name_clean == "[Custom / Unsaved]":
+                        st.error("Cannot use reserved name '[Custom / Unsaved]'. Please enter a different name.")
+                    else:
+                        safe_name = persistence._safe_name(name_clean)
+                        r = _extract_roster_from_session(safe_name, gen, builds, owned)
+                        persistence.save_roster(r, safe_name)
+                        st.session_state["_bm_active_roster"] = safe_name
+                        st.session_state["_bm_roster_msg"] = f"Saved roster '{safe_name}'."
+                        st.rerun()
+    with c_sub2:
+        with st.expander("Import JSON"):
+            up = st.file_uploader("Roster JSON file", type=["json"], key="_bm_import_upload",
+                                  label_visibility="collapsed")
+            if up is not None:
+                if st.button("Apply imported roster", type="primary", key="_bm_apply_import_btn",
+                             width="stretch"):
+                    try:
+                        raw = up.getvalue().decode("utf-8")
+                        imported = roster_from_json(raw)
+                        raw_imported_name = imported.name.strip() if imported.name else ""
+                        safe_imported_name = persistence._safe_name(raw_imported_name)
+                        if not safe_imported_name or safe_imported_name in ("[Custom / Unsaved]", "unnamed"):
+                            safe_imported_name = "imported_roster"
+                        imported.name = safe_imported_name
+                        persistence.save_roster(imported, safe_imported_name)
+                        _load_roster_into_session(imported)
+                        st.session_state["_bm_active_roster"] = safe_imported_name
+                        st.session_state["_bm_roster_msg"] = f"Loaded roster '{safe_imported_name}'."
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to load roster: {e}")
 
 
 def _roster_input(gen: int) -> dict[str, HeroBuild]:
@@ -153,6 +427,54 @@ def _roster_input(gen: int) -> dict[str, HeroBuild]:
     by_epic = {c: sorted(h for h in EPIC_HEROES if hero_class(h) == c)
                for c in ("Inf", "Cav", "Arc")}
     options_by_cls = {c: by_myth[c] + by_epic[c] for c in ("Inf", "Cav", "Arc")}
+
+    # Detect generation slider change
+    last_gen = st.session_state.get("_bm_last_gen")
+    gen_changed = (last_gen is not None and last_gen != gen)
+    st.session_state["_bm_last_gen"] = gen
+
+    # Initialize master backing stores
+    if "_bm_master_owned" not in st.session_state:
+        existing_owned = {
+            c: [h for h in st.session_state.get(f"_bm_own_{c}", []) if hero_class(h) == c]
+            for c in ("Inf", "Cav", "Arc")
+        }
+        if any(existing_owned.values()):
+            st.session_state["_bm_master_owned"] = existing_owned
+        else:
+            st.session_state["_bm_master_owned"] = {c: list(by_myth[c]) for c in ("Inf", "Cav", "Arc")}
+    master_owned: dict[str, list[str]] = st.session_state["_bm_master_owned"]
+
+    if "_bm_master_builds" not in st.session_state:
+        st.session_state["_bm_master_builds"] = {}
+    master_builds: dict[str, HeroBuild] = st.session_state["_bm_master_builds"]
+
+    # Pre-collect owned and builds for toolbar
+    owned_preview: dict[str, list[str]] = {}
+    for cls in ("Inf", "Cav", "Arc"):
+        owned_preview[cls] = [h for h in master_owned.get(cls, []) if h in options_by_cls[cls]]
+
+    builds_preview: dict[str, HeroBuild] = {}
+    for cls in ("Inf", "Cav", "Arc"):
+        for h in owned_preview[cls]:
+            if f"_bm_star_{h}" in st.session_state:
+                star = st.session_state[f"_bm_star_{h}"]
+                tier = st.session_state.get(f"_bm_tier_{h}", 0)
+                wl = 0 if h in EPIC_HEROES else st.session_state.get(f"_bm_wl_{h}", _WIDGET_DEFAULT)
+                h_build = HeroBuild(level=_code(star, tier), widget_level=int(wl))
+                builds_preview[h] = h_build
+                master_builds[h] = h_build
+            elif h in master_builds:
+                builds_preview[h] = master_builds[h]
+            else:
+                star = st.session_state.get(f"_bm_star_{h}", _STAR_DEFAULT)
+                tier = st.session_state.get(f"_bm_tier_{h}", 0)
+                wl = 0 if h in EPIC_HEROES else st.session_state.get(f"_bm_wl_{h}", _WIDGET_DEFAULT)
+                h_build = HeroBuild(level=_code(star, tier), widget_level=int(wl))
+                builds_preview[h] = h_build
+                master_builds[h] = h_build
+
+    _render_roster_manager(gen, builds_preview, owned_preview)
 
     components.render_section_label("Your roster", num=2)
     st.caption(
@@ -167,13 +489,22 @@ def _roster_input(gen: int) -> dict[str, HeroBuild]:
     for col, cls in zip(cols, ("Inf", "Cav", "Arc")):
         with col:
             st.markdown(components.class_chip_html(cls), unsafe_allow_html=True)
-            key = f"_bm_own_{cls}_{gen}"
-            kwargs = dict(options=options_by_cls[cls], key=key,
-                          format_func=lambda h: f"{h} (epic)" if h in EPIC_HEROES else h,
-                          label_visibility="collapsed")
-            if key not in st.session_state:
-                kwargs["default"] = by_myth[cls]
-            owned[cls] = st.multiselect(_CLS_NAME[cls], **kwargs)
+            key = f"_bm_own_{cls}"
+            visible_set = set(options_by_cls[cls])
+
+            if gen_changed or key not in st.session_state:
+                st.session_state[key] = [h for h in master_owned.get(cls, []) if h in visible_set]
+
+            selected = st.multiselect(
+                _CLS_NAME[cls],
+                options=options_by_cls[cls],
+                key=key,
+                format_func=lambda h: f"{h} (epic)" if h in EPIC_HEROES else h,
+                label_visibility="collapsed",
+            )
+            owned[cls] = [h for h in selected if h in visible_set]
+            hidden = [h for h in master_owned.get(cls, []) if h not in visible_set]
+            master_owned[cls] = owned[cls] + hidden
 
     builds: dict[str, HeroBuild] = {}
     all_owned = [h for cls in ("Inf", "Cav", "Arc") for h in owned[cls]]
@@ -189,6 +520,25 @@ def _roster_input(gen: int) -> dict[str, HeroBuild]:
             st.markdown(f"**{cls}**")
             for h in owned[cls]:
                 is_epic = h in EPIC_HEROES
+                s_key = f"_bm_star_{h}"
+                t_key = f"_bm_tier_{h}"
+                w_key = f"_bm_wl_{h}"
+
+                b_saved = master_builds.get(h)
+                if b_saved is not None:
+                    init_star, init_tier = _safe_star_subtier_from_level(b_saved.level)
+                    init_wl = b_saved.widget_level
+                else:
+                    init_star, init_tier = _STAR_DEFAULT, 0
+                    init_wl = 0 if is_epic else _WIDGET_DEFAULT
+
+                if s_key not in st.session_state:
+                    st.session_state[s_key] = init_star
+                if t_key not in st.session_state:
+                    st.session_state[t_key] = init_tier
+                if w_key not in st.session_state and not is_epic:
+                    st.session_state[w_key] = init_wl
+
                 c1, c2, c3, c4 = st.columns([3, 2, 2, 3])
                 with c1:
                     st.markdown(f"<div style='padding-top:6px'>{h}"
@@ -196,13 +546,9 @@ def _roster_input(gen: int) -> dict[str, HeroBuild]:
                                    "font-size:10px;'>epic</span>" if is_epic else "")
                                 + "</div>", unsafe_allow_html=True)
                 with c2:
-                    s_key = f"_bm_star_{h}_{gen}"
-                    st.session_state.setdefault(s_key, _STAR_DEFAULT)
                     star = st.number_input("star", min_value=0, max_value=5, step=1,
                                            key=s_key, label_visibility="collapsed")
                 with c3:
-                    t_key = f"_bm_tier_{h}_{gen}"
-                    st.session_state.setdefault(t_key, 0)
                     tier = st.number_input("sub-tier", min_value=0, max_value=5, step=1,
                                            key=t_key, label_visibility="collapsed",
                                            disabled=int(star) >= 5,
@@ -216,14 +562,18 @@ def _roster_input(gen: int) -> dict[str, HeroBuild]:
                                     "font-size:11px;'>no widget</div>",
                                     unsafe_allow_html=True)
                     else:
-                        w_key = f"_bm_wl_{h}_{gen}"
-                        st.session_state.setdefault(w_key, _WIDGET_DEFAULT)
                         wl = st.slider("widget", min_value=0, max_value=10, step=1,
                                        key=w_key, label_visibility="collapsed")
-                builds[h] = HeroBuild(level=_code(star, tier), widget_level=int(wl))
+                h_build = HeroBuild(level=_code(star, tier), widget_level=int(wl))
+                builds[h] = h_build
+                master_builds[h] = h_build
+
     for h in all_owned:
         if h not in builds:
-            builds[h] = HeroBuild(widget_level=0 if h in EPIC_HEROES else _WIDGET_DEFAULT)
+            b_default = HeroBuild(widget_level=0 if h in EPIC_HEROES else _WIDGET_DEFAULT)
+            builds[h] = b_default
+            master_builds[h] = b_default
+
     return builds
 
 
@@ -403,7 +753,7 @@ def _render_heatmap(gr) -> None:
     fig.update_layout(margin=dict(l=10, r=10, t=10, b=10),
                       height=max(280, 26 * len(heroes) + 60))
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("Brightest cell in a column = the best hero for that scenario "
                "(colour is normalised per column; the number is the raw score). "
                "Rows are grouped Inf / Cav / Arc.")
@@ -437,7 +787,7 @@ def _render_radar(gr) -> None:
         margin=dict(l=40, r=40, t=24, b=24), height=420, showlegend=True,
     )
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("Each axis is normalised to the best in class. The *shape* shows "
                "specialisation (a defender peaks on Defense/Garrison, an attacker "
                "on Solo/Rally).")
@@ -464,14 +814,29 @@ def _builds_sig(builds) -> tuple:
     return tuple(sorted((h, b.level, b.widget_level) for h, b in builds.items()))
 
 
+def _gear_sig(class_gear) -> tuple:
+    if not class_gear or not isinstance(class_gear, dict):
+        return ()
+    res = []
+    for cls in sorted(class_gear.keys()):
+        slots = class_gear[cls]
+        if isinstance(slots, dict):
+            for s in sorted(slots.keys()):
+                p = slots[s]
+                res.append((cls, s, getattr(p, "quality", ""), getattr(p, "level", 0), getattr(p, "forge_mastery", 0)))
+    return tuple(res)
+
+
 def _cached_passes(gen, builds, widget_target, income, profile_override=None):
-    sig = (gen, widget_target, income, profile_override, _builds_sig(builds))
+    cg = st.session_state.get("_bm_class_gear", None)
+    sig = (gen, widget_target, income, profile_override, _builds_sig(builds), _gear_sig(cg))
     cache = st.session_state.setdefault("_bm_passes_cache", {})
     if sig not in cache:
         with st.spinner("Building your roadmap… (queues behind any running search)"):
             cache[sig] = _guarded_run(lambda: simulate(
                 gen, builds, widget_target=widget_target, shard_income=income,
-                profile_override=profile_override))
+                profile_override=profile_override,
+                class_gear=cg))
     return cache[sig]
 
 
@@ -491,7 +856,7 @@ def _render_weight_controls(profile: str) -> dict:
                ("Defense", PLAY_WEIGHTS["defense"]), ("Attack", PLAY_WEIGHTS["attack"]),
                ("Garrison", PLAY_WEIGHTS["garrison"]), ("Rally", PLAY_WEIGHTS["rally"])]
     for col, (lbl, w) in zip(st.columns(len(presets)), presets):
-        if col.button(lbl, key=f"_bm_preset_{lbl}", use_container_width=True):
+        if col.button(lbl, key=f"_bm_preset_{lbl}", width="stretch"):
             for m, v in w.items():
                 st.session_state[f"_bm_w_{m}"] = int(round(v * 100))
             st.rerun()
@@ -885,7 +1250,7 @@ def _render_crossover(rep) -> None:
         margin=dict(l=10, r=10, t=10, b=10), height=340,
         legend=dict(orientation="h", yanchor="bottom", y=-0.35))
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption(
         f"Green line = your **{best_h}** at your {tgt} target (you keep it). Hollow dot "
         "= where it is now. The gap to the line is what you gain by developing what you "
@@ -922,7 +1287,7 @@ def _render_quadrant(rep) -> None:
         margin=dict(l=10, r=10, t=24, b=10),
         height=max(220, 30 * len(owned) + 50))
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("Each bar = the power you'd UNLOCK by taking that hero to its "
                "potential (your target★ + widget). Longest bars = where your shards/"
                "widget buy the most. Colour = the advisor's call (green = develop, "
@@ -994,12 +1359,113 @@ def _render_noob_digest(rep) -> None:
                "and shard economics.")
 
 
+def render_profile_toolbar() -> None:
+    saved_rosters = persistence.list_rosters()
+    active_pref = st.session_state.get("_ks_active_roster")
+
+    if not saved_rosters:
+        col_sel, col_reload, col_save = st.columns([3, 1.5, 2])
+        with col_sel:
+            st.selectbox(
+                "Account Profile",
+                ["(No saved profiles)"],
+                disabled=True,
+                key="benchmark_roster_select",
+                label_visibility="collapsed",
+            )
+        with col_reload:
+            st.button(
+                "🔄 Reload from Profile",
+                disabled=True,
+                key="benchmark_reload_roster_btn",
+            )
+        with col_save:
+            st.button(
+                "💾 Save Changes Back to Profile",
+                disabled=True,
+                key="benchmark_save_roster_btn",
+            )
+        return
+
+    # Determine default index
+    default_idx = 0
+    if active_pref and active_pref in saved_rosters:
+        default_idx = saved_rosters.index(active_pref)
+        if st.session_state.get("_bm_synced_active") != active_pref:
+            st.session_state["benchmark_roster_select"] = active_pref
+            st.session_state["_bm_synced_active"] = active_pref
+
+    # Clean up stale widget key in session_state if it's no longer valid
+    if st.session_state.get("benchmark_roster_select") not in saved_rosters:
+        st.session_state.pop("benchmark_roster_select", None)
+
+    col_sel, col_reload, col_save = st.columns([3, 1.5, 2])
+    with col_sel:
+        sb_idx = None if "benchmark_roster_select" in st.session_state else default_idx
+        selected_profile = st.selectbox(
+            "Account Profile",
+            saved_rosters,
+            index=sb_idx,
+            key="benchmark_roster_select",
+            label_visibility="collapsed",
+        )
+    with col_reload:
+        reload_clicked = st.button(
+            "🔄 Reload from Profile",
+            key="benchmark_reload_roster_btn",
+        )
+    with col_save:
+        save_clicked = st.button(
+            "💾 Save Changes Back to Profile",
+            key="benchmark_save_roster_btn",
+        )
+
+    last_loaded = st.session_state.get("_bm_active_profile_loaded")
+    should_load = False
+
+    if selected_profile != last_loaded:
+        should_load = True
+    elif reload_clicked:
+        should_load = True
+
+    if should_load and selected_profile:
+        try:
+            roster = persistence.load_roster(selected_profile)
+            apply_roster_to_benchmark(roster)
+            if st.session_state.get("_bm_gen", 1) > MAX_GENERATION:
+                st.session_state["_bm_gen"] = MAX_GENERATION
+            st.session_state["_bm_class_gear"] = roster.class_gear
+            st.session_state["_ks_active_roster"] = roster.name
+            st.session_state["_bm_active_profile_loaded"] = roster.name
+            st.session_state["_bm_synced_active"] = roster.name
+            st.session_state.pop("_bm_result", None)
+            st.session_state.pop("_bm_passes_cache", None)
+            if reload_clicked:
+                st.success(f"Profile '{roster.name}' reloaded successfully.")
+        except Exception as e:
+            st.error(f"Failed to load profile '{selected_profile}': {e}")
+
+    if save_clicked and selected_profile:
+        try:
+            roster = persistence.load_roster(selected_profile)
+            updated_roster = extract_roster_from_benchmark(roster)
+            persistence.save_roster(updated_roster, updated_roster.name)
+            st.session_state["_bm_class_gear"] = updated_roster.class_gear
+            st.session_state["_ks_active_roster"] = updated_roster.name
+            st.session_state["_bm_active_profile_loaded"] = updated_roster.name
+            st.session_state["_bm_synced_active"] = updated_roster.name
+            st.success(f"Profile '{updated_roster.name}' saved back to profile!")
+        except Exception as e:
+            st.error(f"Failed to save profile '{selected_profile}': {e}")
+
+
 def render() -> None:
     components.render_page_header(
         "Hero Benchmark",
         "Which heroes should you develop? Pick your generation and roster, "
         "and the tool ranks what to build next.",
     )
+    render_profile_toolbar()
     _bm_view_options = ["Simple", "Explore rankings", "Advisor"]
     _persisted_view = st.session_state.get("_bm_view_mode")
     if _persisted_view is not None and _persisted_view not in _bm_view_options:
@@ -1020,10 +1486,19 @@ def render() -> None:
     components.render_section_label("Generation", num=1)
     gc1, gc2 = st.columns([4, 1])
     with gc1:
+        pending_gen = st.session_state.pop("_bm_pending_gen", None)
+        if pending_gen is not None:
+            st.session_state["_bm_gen"] = pending_gen
+        cur_gen = st.session_state.get("_bm_gen")
+        if cur_gen not in range(1, MAX_GENERATION + 1):
+            st.session_state["_bm_gen"] = MAX_GENERATION
         gen = st.select_slider(
-            "Your generation", options=list(range(1, MAX_GENERATION + 1)),
-            value=MAX_GENERATION, key="_bm_gen", label_visibility="collapsed",
+            "Your generation",
+            options=list(range(1, MAX_GENERATION + 1)),
+            key="_bm_gen",
+            label_visibility="collapsed",
         )
+        st.session_state["_bm_master_gen"] = max(st.session_state.get("_bm_master_gen", gen), gen)
     with gc2:
         st.markdown(
             f"<div style='text-align:center;font-weight:800;font-size:18px;"
@@ -1046,8 +1521,10 @@ def render() -> None:
         else:
             with st.spinner("Simulating your roster… (queues behind any running "
                             "search to keep the server responsive)"):
+                cg = st.session_state.get("_bm_class_gear", None)
                 cur = _guarded_run(lambda: rank_generation(
-                    gen, BenchSettings(), builds=builds, roster=set(builds)))
+                    gen, BenchSettings(), builds=builds, roster=set(builds),
+                    class_gear=cg))
             st.session_state["_bm_result"] = (gen, dict(builds), cur)
             st.session_state.pop("_bm_passes_cache", None)
 
@@ -1098,4 +1575,10 @@ def render() -> None:
         _render_results(rgen, cur)
 
 
-__all__ = ["render"]
+__all__ = [
+    "render",
+    "render_profile_toolbar",
+    "_extract_roster_from_session",
+    "_load_roster_into_session",
+    "_render_roster_manager",
+]
