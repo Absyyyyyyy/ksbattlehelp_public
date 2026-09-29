@@ -12,6 +12,7 @@ from kingshot_sim.webui.easy_mode_form import (
     fighter_form_with_mode, is_easy_mode, easy_mode_rally_flag,
 )
 from kingshot_sim.webui import persistence, components, runtime_stats
+from kingshot_sim.io_pkg.roster_bridge import account_roster_to_fighter
 
 
 def render() -> None:
@@ -26,22 +27,38 @@ def render() -> None:
     if "qf_defender" not in st.session_state:
         st.session_state.qf_defender = empty_fighter("Defender")
 
-    profiles = persistence.list_profiles()
-    if profiles:
+    rosters = persistence.list_rosters()
+    if rosters:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            sel_a = st.selectbox("Load attacker", ["—"] + profiles, key="qf_load_att")
+            sel_a = st.selectbox("Load attacker", ["—"] + rosters, key="qf_load_att_roster")
         with c2:
             if st.button("→ Attacker", key="qf_btn_load_att", width="stretch"):
                 if sel_a != "—":
-                    st.session_state.qf_attacker = persistence.load_profile(sel_a)
+                    loaded_r = persistence.load_roster(sel_a)
+                    curr = st.session_state.qf_attacker
+                    st.session_state.qf_attacker = account_roster_to_fighter(
+                        loaded_r, curr, default_label="Attacker",
+                    )
+                    gen_key = "qf_att_form_gen"
+                    st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
+                    st.session_state["qf_att_input_mode"] = "Advanced"
+                    st.session_state["qf_att_input_mode_radio"] = "Advanced (manual entry)"
                     st.rerun()
         with c3:
-            sel_d = st.selectbox("Load defender", ["—"] + profiles, key="qf_load_def")
+            sel_d = st.selectbox("Load defender", ["—"] + rosters, key="qf_load_def_roster")
         with c4:
             if st.button("→ Defender", key="qf_btn_load_def", width="stretch"):
                 if sel_d != "—":
-                    st.session_state.qf_defender = persistence.load_profile(sel_d)
+                    loaded_r = persistence.load_roster(sel_d)
+                    curr = st.session_state.qf_defender
+                    st.session_state.qf_defender = account_roster_to_fighter(
+                        loaded_r, curr, default_label="Defender",
+                    )
+                    gen_key = "qf_def_form_gen"
+                    st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
+                    st.session_state["qf_def_input_mode"] = "Advanced"
+                    st.session_state["qf_def_input_mode_radio"] = "Advanced (manual entry)"
                     st.rerun()
         st.markdown("---")
 
