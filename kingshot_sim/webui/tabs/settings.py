@@ -1,13 +1,14 @@
 from __future__ import annotations
 import html
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import streamlit as st
 
 from kingshot_sim.webui import persistence, components
 from kingshot_sim.io_pkg import backup as backup_mod
 from kingshot_sim.io_pkg.rosters import AccountRoster
+from kingshot_sim.io_pkg.roster_bridge import fighter_to_roster
 from kingshot_sim.benchmark.runner import HeroBuild
 from kingshot_sim.config.fighter import BonusVector, HeroGearPiece
 from kingshot_sim.config.buffs import Buffs
@@ -67,24 +68,17 @@ def render() -> None:
 
     rosters = persistence.list_rosters()
     profiles = persistence.list_profiles()
-    spaces = persistence.list_search_spaces()
 
-    tab_r, tab_p, tab_s, tab_adv, tab_backup = st.tabs([
+    tab_r, tab_adv, tab_backup = st.tabs([
         f"Account & roster profiles ({len(rosters)})",
-        f"Saved profiles ({len(profiles)})",
-        f"Saved rosters ({len(spaces)})",
         "Advanced options",
         "Backup & restore",
     ])
 
     with tab_r:
         render_account_roster_section()
-    with tab_p:
-        _render_profiles(profiles)
-    with tab_s:
-        _render_search_spaces(spaces)
     with tab_adv:
-        _render_advanced()
+        _render_advanced(profiles)
     with tab_backup:
         _render_backup_restore()
 
@@ -490,7 +484,10 @@ def render_account_roster_section() -> None:
 
 
 
-def _render_advanced() -> None:
+def _render_advanced(profiles: list[str] | None = None) -> None:
+    if profiles is None:
+        profiles = persistence.list_profiles()
+
     tab_op, tab_data = st.tabs([
         "Customize skills (op codes)",
         "Customize data (T11 stats, etc.)",
@@ -499,6 +496,9 @@ def _render_advanced() -> None:
         _render_op_overrides()
     with tab_data:
         _render_data_overrides()
+
+    st.markdown("---")
+    _render_legacy_profiles(profiles)
 
 
 def _render_data_overrides() -> None:
@@ -624,77 +624,73 @@ def _render_op_overrides() -> None:
             st.error(str(e))
 
 
-def _render_profiles(profiles: list[str]) -> None:
-    components.render_subheading("Saved compositions")
-    st.caption(
-        "Compositions saved from Quick Fight or Attack & Defense "
-        "appear here. You can inspect them or delete the ones you no longer need."
-    )
-    if not profiles:
-        st.info(
-            "No saved compositions yet. Go to **Attack & Defense** or "
-            "**Quick Fight**, set up a fighter, and save it from there."
+def _render_legacy_profiles(profiles: list[str]) -> None:
+    with st.expander(f"Legacy Fighter Profiles ({len(profiles)}) \u2014 Deprecated", expanded=False):
+        st.caption(
+            "These compositions were saved using the legacy fighter format. "
+            "You can inspect them, convert them to new Account Profiles, or delete them."
         )
-        return
+        if not profiles:
+            st.info("No legacy fighter profiles found.")
+            return
 
-    for p in profiles:
-        cols = st.columns([4, 1, 1])
-        cols[0].markdown(f"**{p}**")
-        if cols[1].button("Inspect", key=f"insp_{p}"):
-            fighter = persistence.load_profile(p)
-            st.session_state.set_inspect_profile = (p, fighter)
-        if cols[2].button("Delete", key=f"del_{p}"):
-            persistence.delete_profile(p)
-            st.rerun()
-
-    if "set_inspect_profile" in st.session_state:
-        name, fighter = st.session_state.set_inspect_profile
-        st.markdown("---")
-        components.render_subheading(f"Inspecting: {html.escape(name)}")
-        with st.expander("Composition details", expanded=True):
-            rows = [
-                ("Label", fighter.label),
-                ("Inf leader", f"{fighter.leader_inf.hero_name} ★{fighter.leader_inf.level} "
-                               f"(W{fighter.leader_inf.widget_level})"),
-                ("Cav leader", f"{fighter.leader_cav.hero_name} ★{fighter.leader_cav.level} "
-                               f"(W{fighter.leader_cav.widget_level})"),
-                ("Arc leader", f"{fighter.leader_arc.hero_name} ★{fighter.leader_arc.level} "
-                               f"(W{fighter.leader_arc.widget_level})"),
-                ("Joiners", ", ".join(j.hero_name for j in fighter.joiners) or "—"),
-                ("Inf troops", f"{sum(g.count for g in fighter.troops.infantry):,}"),
-                ("Cav troops", f"{sum(g.count for g in fighter.troops.cavalry):,}"),
-                ("Arc troops", f"{sum(g.count for g in fighter.troops.archer):,}"),
-            ]
-            body = "".join(
-                '<div style="display:flex;justify-content:space-between;gap:16px;'
-                'padding:6px 0;border-top:1px solid var(--ks-border);">'
-                f'<span style="color:var(--ks-text-muted);font-size:12.5px;">{k}</span>'
-                f'<span style="color:var(--ks-text);font-size:13px;font-weight:500;'
-                f'text-align:right;">{html.escape(str(v))}</span></div>'
-                for k, v in rows
-            )
-            st.markdown(
-                '<div style="background:var(--ks-surface);border:1px solid var(--ks-border);'
-                'border-radius:8px;padding:6px 14px;box-shadow:var(--ks-shadow);">'
-                + body + '</div>',
-                unsafe_allow_html=True,
-            )
-        if st.button("Close inspection", key="set_close_inspect"):
-            st.session_state.pop("set_inspect_profile", None)
-            st.rerun()
-
-
-def _render_search_spaces(spaces: list[str]) -> None:
-    components.render_subheading("Saved search spaces")
-    if not spaces:
-        st.info("No search spaces yet. Build one in Attack & Defense and save it.")
-    else:
-        for s in spaces:
-            cols = st.columns([4, 1])
-            cols[0].markdown(f"**{s}**")
-            if cols[1].button("Delete", key=f"del_sp_{s}"):
-                persistence.delete_search(s)
+        for p in profiles:
+            cols = st.columns([3, 1, 2, 1])
+            cols[0].markdown(f"**{p}**")
+            if cols[1].button("Inspect", key=f"legacy_insp_{p}", width="stretch"):
+                fighter = persistence.load_profile(p)
+                st.session_state["set_inspect_profile"] = (p, fighter)
+            if cols[2].button("Convert to Account Profile", key=f"legacy_convert_{p}", width="stretch"):
+                fighter = persistence.load_profile(p)
+                new_roster = fighter_to_roster(fighter, name=p)
+                persistence.save_roster(new_roster, p)
+                st.success(f"Converted legacy profile '{p}' to Account Profile!")
                 st.rerun()
+            if cols[3].button("Delete", key=f"legacy_del_{p}", width="stretch"):
+                persistence.delete_profile(p)
+                if st.session_state.get("set_inspect_profile", (None,))[0] == p:
+                    st.session_state.pop("set_inspect_profile", None)
+                st.rerun()
+
+        if "set_inspect_profile" in st.session_state:
+            name, fighter = st.session_state["set_inspect_profile"]
+            st.markdown("---")
+            components.render_subheading(f"Inspecting: {html.escape(name)}")
+            with st.expander("Composition details", expanded=True):
+                rows = [
+                    ("Label", fighter.label),
+                    ("Inf leader", f"{fighter.leader_inf.hero_name} ★{fighter.leader_inf.level} "
+                                   f"(W{fighter.leader_inf.widget_level})"),
+                    ("Cav leader", f"{fighter.leader_cav.hero_name} ★{fighter.leader_cav.level} "
+                                   f"(W{fighter.leader_cav.widget_level})"),
+                    ("Arc leader", f"{fighter.leader_arc.hero_name} ★{fighter.leader_arc.level} "
+                                   f"(W{fighter.leader_arc.widget_level})"),
+                    ("Joiners", ", ".join(j.hero_name for j in fighter.joiners) or "—"),
+                    ("Inf troops", f"{sum(g.count for g in fighter.troops.infantry):,}"),
+                    ("Cav troops", f"{sum(g.count for g in fighter.troops.cavalry):,}"),
+                    ("Arc troops", f"{sum(g.count for g in fighter.troops.archer):,}"),
+                ]
+                body = "".join(
+                    '<div style="display:flex;justify-content:space-between;gap:16px;'
+                    'padding:6px 0;border-top:1px solid var(--ks-border);">'
+                    f'<span style="color:var(--ks-text-muted);font-size:12.5px;">{k}</span>'
+                    f'<span style="color:var(--ks-text);font-size:13px;font-weight:500;'
+                    f'text-align:right;">{html.escape(str(v))}</span></div>'
+                    for k, v in rows
+                )
+                st.markdown(
+                    '<div style="background:var(--ks-surface);border:1px solid var(--ks-border);'
+                    'border-radius:8px;padding:6px 14px;box-shadow:var(--ks-shadow);">'
+                    + body + '</div>',
+                    unsafe_allow_html=True,
+                )
+            if st.button("Close inspection", key="set_close_inspect", width="stretch"):
+                st.session_state.pop("set_inspect_profile", None)
+                st.rerun()
+
+
+def _render_profiles(profiles: list[str]) -> None:
+    _render_legacy_profiles(profiles)
 
 
 def _render_backup_restore() -> None:
@@ -716,21 +712,21 @@ def _render_backup_restore() -> None:
         )
 
     payload = backup_mod.build_backup_payload()
+    n_rosters = len(payload.get("rosters", {}))
     n_profiles = len(payload.get("profiles", {}))
-    n_searches = len(payload.get("search_spaces", {}))
     n_op = len(payload.get("op_overrides", []))
     n_data = len(payload.get("data_overrides", {}))
 
     cols = st.columns(4)
-    cols[0].metric("Profiles",   n_profiles)
-    cols[1].metric("Rosters",    n_searches)
+    cols[0].metric("Account Rosters", n_rosters)
+    cols[1].metric("Legacy Profiles", n_profiles)
     cols[2].metric("Op overrides", n_op)
     cols[3].metric("Data overrides", n_data)
 
     st.markdown("---")
 
     st.markdown("##### Download backup")
-    if n_profiles + n_searches + n_op + n_data == 0:
+    if n_rosters + n_profiles + n_op + n_data == 0:
         st.caption("Nothing to back up yet. Save a composition or change an "
                    "override first.")
     else:
@@ -738,7 +734,7 @@ def _render_backup_restore() -> None:
         blob = _json.dumps(payload, indent=2)
         fname = (
             "ksbattlehelper_backup_"
-            f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
         )
         st.download_button(
             "Download my data (.json)",
@@ -747,6 +743,7 @@ def _render_backup_restore() -> None:
             mime="application/json",
             type="primary",
             key="backup_download_btn",
+            width="stretch",
         )
         st.caption(
             f"Filename `{fname}`. Keep it on your computer. Uploading it "
@@ -774,12 +771,14 @@ def _render_backup_restore() -> None:
         return
 
     p_in = parsed.get("profiles", {}) or {}
+    r_in = parsed.get("rosters", {}) or {}
     s_in = parsed.get("search_spaces", {}) or {}
     o_in = parsed.get("op_overrides", []) or []
     d_in = parsed.get("data_overrides", {}) or {}
     st.success(
-        f"File looks valid. Contents: **{len(p_in)} profile(s)**, "
-        f"**{len(s_in)} roster(s)**, **{len(o_in)} op override(s)**, "
+        f"File looks valid. Contents: **{len(r_in)} account roster(s)**, "
+        f"**{len(p_in)} legacy profile(s)**, "
+        f"**{len(o_in)} op override(s)**, "
         f"**{len(d_in)} data override(s)**."
     )
 
@@ -792,7 +791,7 @@ def _render_backup_restore() -> None:
         key="backup_import_mode",
     )
 
-    if st.button("Apply restore", type="primary", key="backup_apply_btn"):
+    if st.button("Apply restore", type="primary", key="backup_apply_btn", width="stretch"):
         report = backup_mod.apply_backup_payload(
             parsed,
             replace_existing=mode.startswith("Replace"),

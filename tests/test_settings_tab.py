@@ -271,3 +271,108 @@ def test_full_settings_render_save_profile(tmp_path, monkeypatch):
     assert "FullSettingsSave" in persistence.list_rosters()
 
 
+def test_settings_renders_three_tabs_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    monkeypatch.setattr(persistence, "_PROFILES_DIR", tmp_path / "profiles")
+    monkeypatch.setattr(persistence, "_SEARCH_DIR", tmp_path / "searches")
+    monkeypatch.setattr(persistence, "_use_session_backend", lambda: False)
+
+    at = AppTest.from_function(_render_full_settings_app)
+    at.default_timeout = 10
+    at.run()
+    assert not at.exception
+
+    labels = [t.label for t in at.tabs]
+    assert any("Account & roster profiles" in lbl for lbl in labels)
+    assert "Advanced options" in labels
+    assert "Backup & restore" in labels
+    assert not any("Saved rosters" in lbl for lbl in labels)
+    assert not any(lbl.startswith("Saved profiles") for lbl in labels)
+
+
+def test_legacy_fighter_profiles_inspect_convert_delete(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    monkeypatch.setattr(persistence, "_PROFILES_DIR", tmp_path / "profiles")
+    monkeypatch.setattr(persistence, "_SEARCH_DIR", tmp_path / "searches")
+    monkeypatch.setattr(persistence, "_use_session_backend", lambda: False)
+
+    from kingshot_sim.config.fighter import Fighter, LeaderHero, JoinerHero, TroopRoster
+
+    legacy_fighter = Fighter(
+        label="LegacyChamp",
+        leader_inf=LeaderHero("Eric", level="MAX", widget_level=10),
+        leader_cav=LeaderHero("Petra", level="MAX", widget_level=8),
+        leader_arc=LeaderHero("Jaeger", level="MAX", widget_level=5),
+        joiners=(JoinerHero("Margot", level="MAX"),),
+        bonuses=BonusVector(inf_atk_pct=50.0),
+        troops=TroopRoster(),
+    )
+    persistence.save_profile(legacy_fighter, "LegacyChamp")
+    assert "LegacyChamp" in persistence.list_profiles()
+    assert "LegacyChamp" not in persistence.list_rosters()
+
+    at = AppTest.from_function(_render_full_settings_app)
+    at.default_timeout = 10
+    at.run()
+    assert not at.exception
+
+    insp_btn = at.button(key="legacy_insp_LegacyChamp")
+    insp_btn.click().run()
+    assert not at.exception
+    assert at.session_state.get("set_inspect_profile") is not None
+    assert at.session_state["set_inspect_profile"][0] == "LegacyChamp"
+
+    convert_btn = at.button(key="legacy_convert_LegacyChamp")
+    convert_btn.click().run()
+    assert not at.exception
+    assert "LegacyChamp" in persistence.list_rosters()
+    converted_roster = persistence.load_roster("LegacyChamp")
+    assert converted_roster.name == "LegacyChamp"
+    assert "Eric" in converted_roster.owned_heroes.get("Inf", [])
+
+    del_btn = at.button(key="legacy_del_LegacyChamp")
+    del_btn.click().run()
+    assert not at.exception
+    assert "LegacyChamp" not in persistence.list_profiles()
+
+
+def test_backup_restore_metrics_show_account_rosters(tmp_path, monkeypatch):
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    monkeypatch.setattr(persistence, "_PROFILES_DIR", tmp_path / "profiles")
+    monkeypatch.setattr(persistence, "_SEARCH_DIR", tmp_path / "searches")
+    monkeypatch.setattr(persistence, "_use_session_backend", lambda: False)
+
+    from kingshot_sim.config.fighter import Fighter, LeaderHero, TroopRoster
+
+    r1 = AccountRoster(name="Roster1", generation=8)
+    r2 = AccountRoster(name="Roster2", generation=8)
+    persistence.save_roster(r1, "Roster1")
+    persistence.save_roster(r2, "Roster2")
+
+    f1 = Fighter(
+        label="FighterLegacy",
+        leader_inf=LeaderHero("Eric", level="MAX", widget_level=10),
+        leader_cav=LeaderHero("Petra", level="MAX", widget_level=8),
+        leader_arc=LeaderHero("Jaeger", level="MAX", widget_level=5),
+        joiners=(),
+        bonuses=BonusVector(),
+        troops=TroopRoster(),
+    )
+    persistence.save_profile(f1, "FighterLegacy")
+
+    at = AppTest.from_function(_render_full_settings_app)
+    at.default_timeout = 10
+    at.run()
+    assert not at.exception
+
+    metric_map = {m.label: m.value for m in at.metric}
+    assert "Account Rosters" in metric_map
+    assert "Legacy Profiles" in metric_map
+    assert "Op overrides" in metric_map
+    assert "Data overrides" in metric_map
+    assert metric_map["Account Rosters"] == "2"
+    assert metric_map["Legacy Profiles"] == "1"
+
+
+
