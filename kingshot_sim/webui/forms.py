@@ -117,6 +117,14 @@ def leader_form(
         effective_builds = roster.builds
     if effective_builds is None:
         act_name = st.session_state.get("_ks_active_roster")
+        if not act_name:
+            try:
+                from kingshot_sim.webui import persistence
+                saved_rosters = persistence.list_rosters()
+                if saved_rosters:
+                    act_name = saved_rosters[0]
+            except Exception:
+                pass
         if act_name:
             try:
                 from kingshot_sim.webui import persistence
@@ -127,7 +135,16 @@ def leader_form(
 
     if prev_hero is None:
         st.session_state[tracked_hero_key] = name
-        if name not in hero_cache:
+        if effective_builds and name in effective_builds:
+            b = effective_builds[name]
+            sl = b.skill_levels if b.skill_levels is not None else default_skill_levels(b.level)
+            target = {"level": b.level, "widget": int(b.widget_level), "skills": sl}
+            hero_cache[name] = target
+            st.session_state.setdefault(f"{key_prefix}_level", target["level"])
+            st.session_state.setdefault(f"{key_prefix}_widget", int(target["widget"]))
+            for s_idx, slot in enumerate(("sk1", "sk2", "sk3")):
+                st.session_state.setdefault(f"{key_prefix}_{slot}_lvl", target["skills"][s_idx])
+        elif name not in hero_cache:
             hero_cache[name] = {
                 "level": default_level,
                 "widget": default_widget,
@@ -135,13 +152,13 @@ def leader_form(
             }
     elif prev_hero != name:
         st.session_state[tracked_hero_key] = name
-        if name in hero_cache:
-            target = hero_cache[name]
-        elif effective_builds and name in effective_builds:
+        if effective_builds and name in effective_builds:
             b = effective_builds[name]
             sl = b.skill_levels if b.skill_levels is not None else default_skill_levels(b.level)
             target = {"level": b.level, "widget": int(b.widget_level), "skills": sl}
             hero_cache[name] = target
+        elif name in hero_cache:
+            target = hero_cache[name]
         else:
             def_wl = 0 if name in EPIC_HEROES else 10
             target = {"level": "MAX", "widget": def_wl, "skills": default_skill_levels("MAX")}
@@ -151,6 +168,7 @@ def leader_form(
         st.session_state[f"{key_prefix}_widget"] = int(target["widget"])
         for s_idx, slot in enumerate(("sk1", "sk2", "sk3")):
             st.session_state[f"{key_prefix}_{slot}_lvl"] = target["skills"][s_idx]
+        st.rerun()
 
     lvl_val = st.session_state.get(f"{key_prefix}_level", default_level)
     level_idx = _LEVEL_KEYS.index(lvl_val) if lvl_val in _LEVEL_KEYS else len(_LEVEL_KEYS) - 1

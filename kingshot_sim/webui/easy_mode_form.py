@@ -47,6 +47,8 @@ def easy_mode_fighter_form(
     default: Fighter,
     key_prefix: str,
     side: str = "attacker",
+    roster: Optional[Any] = None,
+    builds: Optional[dict[str, Any]] = None,
 ) -> Fighter:
     state = _quiz_state(key_prefix)
 
@@ -80,7 +82,7 @@ def easy_mode_fighter_form(
     _render_q1(key_prefix, state)
     _render_q2(key_prefix, state)
     _render_q3(key_prefix, state)
-    _render_q4(key_prefix, state, default)
+    _render_q4(key_prefix, state, default, roster=roster, builds=builds)
     _render_q5(key_prefix, state, default)
     _render_q6_summary(key_prefix, state, label, default)
 
@@ -1192,7 +1194,13 @@ def _render_q3(key_prefix: str, state: dict) -> None:
         st.rerun()
 
 
-def _render_q4(key_prefix: str, state: dict, default: Fighter) -> None:
+def _render_q4(
+    key_prefix: str,
+    state: dict,
+    default: Fighter,
+    roster: Optional[Any] = None,
+    builds: Optional[dict[str, Any]] = None,
+) -> None:
     step_key = "q4_done"
     edit_key = f"{key_prefix}_em_q4"
     locked = not state.get("q3_done", False) and not _buffs_captured_from_ocr(state)
@@ -1226,14 +1234,32 @@ def _render_q4(key_prefix: str, state: dict, default: Fighter) -> None:
             default.leader_inf, default.leader_cav, default.leader_arc,
         )
 
-    inf = leader_form(label="Infantry leader", klass="Inf",
-                          default=cur_inf, key_prefix=f"{edit_key}_inf")
+    inf = leader_form(
+        label="Infantry leader",
+        klass="Inf",
+        default=cur_inf,
+        key_prefix=f"{edit_key}_inf",
+        roster=roster,
+        builds=builds,
+    )
     st.markdown("---")
-    cav = leader_form(label="Cavalry leader", klass="Cav",
-                          default=cur_cav, key_prefix=f"{edit_key}_cav")
+    cav = leader_form(
+        label="Cavalry leader",
+        klass="Cav",
+        default=cur_cav,
+        key_prefix=f"{edit_key}_cav",
+        roster=roster,
+        builds=builds,
+    )
     st.markdown("---")
-    arc = leader_form(label="Archer leader", klass="Arc",
-                          default=cur_arc, key_prefix=f"{edit_key}_arc")
+    arc = leader_form(
+        label="Archer leader",
+        klass="Arc",
+        default=cur_arc,
+        key_prefix=f"{edit_key}_arc",
+        roster=roster,
+        builds=builds,
+    )
 
     if st.button("✓ Confirm trio", key=f"{edit_key}_confirm", type="primary"):
         state["trio"] = (inf, cav, arc)
@@ -1485,7 +1511,7 @@ def fighter_form_with_mode(
     )
 
     if is_easy and not quiz_done:
-        return easy_mode_fighter_form(default, key_prefix=key_prefix, side=side)
+        return easy_mode_fighter_form(default, key_prefix=key_prefix, side=side, roster=roster, builds=builds)
 
     if is_easy and quiz_done:
         banner_anchor = f"{key_prefix}_post_import_banner"

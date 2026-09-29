@@ -303,3 +303,47 @@ def test_quick_fight_hero_switch_updates_level_widget_skills(tmp_path, monkeypat
     assert att.leader_inf.widget_level == 2
     assert att.leader_inf.skill_levels == (3, 3, 2)
 
+
+def test_quick_fight_hero_switch_with_saved_account_roster_without_explicit_load(tmp_path, monkeypatch):
+    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
+    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    monkeypatch.setattr(persistence, "_PROFILES_DIR", tmp_path / "profiles")
+    monkeypatch.setattr(persistence, "_SEARCH_DIR", tmp_path / "searches")
+
+    roster = AccountRoster(
+        name="MainAccount",
+        generation=7,
+        owned_heroes={"Inf": ["Eric", "Amadeus"], "Cav": ["Petra"], "Arc": ["Jaeger"]},
+        builds={
+            "Eric": HeroBuild(level="4_2", widget_level=5, skill_levels=(4, 4, 3)),
+            "Amadeus": HeroBuild(level="3_2", widget_level=3, skill_levels=(3, 3, 2)),
+        },
+    )
+    persistence.save_roster(roster, "MainAccount")
+
+    at = AppTest.from_function(_render_quick_fight_app)
+    at.run()
+    assert not at.exception
+
+    # Switch to Advanced mode on attacker
+    at.radio(key="qf_att_input_mode_radio").set_value("Advanced (manual entry)").run()
+    assert not at.exception
+
+    # Initially Eric with build from MainAccount
+    assert at.selectbox(key="qf_att_g0_li_name").value == "Eric"
+    assert at.selectbox(key="qf_att_g0_li_level").value == "4_2"
+    assert at.slider(key="qf_att_g0_li_widget").value == 5
+
+    # Switch to Amadeus
+    at.selectbox(key="qf_att_g0_li_name").select("Amadeus").run()
+    assert not at.exception
+
+    # Amadeus build from MainAccount immediately populated
+    assert at.selectbox(key="qf_att_g0_li_name").value == "Amadeus"
+    assert at.selectbox(key="qf_att_g0_li_level").value == "3_2"
+    assert at.slider(key="qf_att_g0_li_widget").value == 3
+    assert at.selectbox(key="qf_att_g0_li_sk1_lvl").value == 3
+    assert at.selectbox(key="qf_att_g0_li_sk2_lvl").value == 3
+    assert at.selectbox(key="qf_att_g0_li_sk3_lvl").value == 2
+
+

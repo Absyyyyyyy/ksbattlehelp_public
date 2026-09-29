@@ -29,6 +29,16 @@ def render() -> None:
 
     rosters = persistence.list_rosters()
     if rosters:
+        active_roster = st.session_state.get("_ks_active_roster")
+        if not active_roster and rosters:
+            active_roster = rosters[0]
+
+        if "qf_att_roster" not in st.session_state and active_roster in rosters:
+            try:
+                st.session_state["qf_att_roster"] = persistence.load_roster(active_roster)
+            except Exception:
+                pass
+
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             sel_a = st.selectbox("Load attacker", ["—"] + rosters, key="qf_load_att_roster")
