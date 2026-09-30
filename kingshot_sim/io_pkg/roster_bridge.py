@@ -1,0 +1,538 @@
+from __future__ import annotations
+import copy
+from dataclasses import replace
+
+from .rosters import AccountRoster
+from ..benchmark.runner import HeroBuild
+from ..config.fighter import (
+    Fighter,
+    LeaderHero,
+    JoinerHero,
+    TroopRoster,
+    BonusVector,
+    HeroGearPiece,
+)
+from ..config.buffs import Buffs
+from ..optimizer.search_space import SearchSpace, TroopPool, LeaderSpec
+from ..data.reference import (
+    MYTHIC_HEROES,
+    EPIC_HEROES,
+    HERO_CLASS,
+    NON_COMBAT_FIRST_SKILL_HEROES,
+    HERO_GENERATION,
+    hero_class,
+)
+
+
+def _safe_star_subtier(level: str) -> tuple[int, int]:
+    if level == "MAX":
+        return 5, 0
+    if "_" in level:
+        parts = level.split("_")
+        try:
+            return max(0, min(5, int(parts[0]))), max(0, min(5, int(parts[1])))
+        except (ValueError, IndexError):
+            pass
+    return 5, 0
+
+
+def roster_to_search_space(
+    roster: AccountRoster,
+    base: SearchSpace | None = None,
+) -> SearchSpace:
+    """Translate an AccountRoster into a SearchSpace.
+
+    - Extracts owned mythic heroes into available_mythic_inf, cav, arc.
+    - Extracts eligible combat heroes into available_joiners (excluding NON_COMBAT_FIRST_SKILL_HEROES).
+    - Translates builds into leader_specs.
+    - Injects class_gear, bonuses, and buffs.
+    - Preserves base optimizer settings (troop pool, ratio steps, march cap, min inf pct) if provided.
+    """
+    # 1. Available mythic leaders per class
+    if "Inf" in roster.owned_heroes:
+        inf_heroes = [
+            h for h in roster.owned_heroes["Inf"]
+            if h in MYTHIC_HEROES and HERO_CLASS.get(h) == "Inf"
+        ]
+    elif base is not None:
+        inf_heroes = list(base.available_mythic_inf)
+    else:
+        inf_heroes = []
+
+    if "Cav" in roster.owned_heroes:
+        cav_heroes = [
+            h for h in roster.owned_heroes["Cav"]
+            if h in MYTHIC_HEROES and HERO_CLASS.get(h) == "Cav"
+        ]
+    elif base is not None:
+        cav_heroes = list(base.available_mythic_cav)
+    else:
+        cav_heroes = []
+
+    if "Arc" in roster.owned_heroes:
+        arc_heroes = [
+            h for h in roster.owned_heroes["Arc"]
+            if h in MYTHIC_HEROES and HERO_CLASS.get(h) == "Arc"
+        ]
+    elif base is not None:
+        arc_heroes = list(base.available_mythic_arc)
+    else:
+        arc_heroes = []
+
+    # 2. Available joiners (mythic and epic heroes, excluding non-combat first skill heroes)
+    if roster.owned_heroes:
+        joiner_heroes: list[str] = []
+        for cls in ("Inf", "Cav", "Arc"):
+            for h in roster.owned_heroes.get(cls, []):
+                if (h in MYTHIC_HEROES or h in EPIC_HEROES) and (
+                    h not in NON_COMBAT_FIRST_SKILL_HEROES
+                ) and (h not in joiner_heroes):
+                    joiner_heroes.append(h)
+    elif base is not None:
+        joiner_heroes = [
+            h for h in base.available_joiners
+            if h not in NON_COMBAT_FIRST_SKILL_HEROES
+        ]
+    else:
+        joiner_heroes = []
+
+    # 3. Base optimizer settings
+    troop_pool = copy.deepcopy(base.troop_pool) if base is not None else TroopPool()
+    troop_ratio_step = base.troop_ratio_step if base is not None else 0.10
+    min_inf_pct = base.min_inf_pct if base is not None else 0.30
+    n_joiners = base.n_joiners if base is not None else 4
+    leader_level = base.leader_level if base is not None else "MAX"
+    leader_widget_level = base.leader_widget_level if base is not None else 10
+    joiner_level = base.joiner_level if base is not None else "MAX"
+    label_prefix = base.label_prefix if base is not None else "Cand"
+
+    # 4. Leader specs
+    leader_specs: dict[str, LeaderSpec] = dict(base.leader_specs) if base is not None else {}
+    for h, b in roster.builds.items():
+        existing_spec = leader_specs.get(h)
+        gear_atk = existing_spec.gear_atk_pct if existing_spec else 0.0
+        gear_def = existing_spec.gear_def_pct if existing_spec else 0.0
+        gear_let = existing_spec.gear_let_pct if existing_spec else 0.0
+        gear_hp = existing_spec.gear_hp_pct if existing_spec else 0.0
+        leader_specs[h] = LeaderSpec(
+            level=b.level,
+            widget_level=b.widget_level,
+            skill_levels=b.skill_levels,
+            gear_atk_pct=gear_atk,
+            gear_def_pct=gear_def,
+            gear_let_pct=gear_let,
+            gear_hp_pct=gear_hp,
+        )
+
+    # 5. Class gear, bonuses, buffs
+    if roster.class_gear:
+        class_gear = {cls: dict(slots) for cls, slots in roster.class_gear.items()}
+    elif base is not None and base.class_gear:
+        class_gear = {cls: dict(slots) for cls, slots in base.class_gear.items()}
+    else:
+        class_gear = {}
+
+    bonuses = replace(roster.bonuses)
+    buffs = replace(roster.buffs)
+
+    return SearchSpace(
+        available_mythic_inf=inf_heroes,
+        available_mythic_cav=cav_heroes,
+        available_mythic_arc=arc_heroes,
+        available_joiners=joiner_heroes,
+        troop_pool=troop_pool,
+        troop_ratio_step=troop_ratio_step,
+        min_inf_pct=min_inf_pct,
+        n_joiners=n_joiners,
+        bonuses=bonuses,
+        leader_level=leader_level,
+        leader_widget_level=leader_widget_level,
+        joiner_level=joiner_level,
+        label_prefix=label_prefix,
+        leader_specs=leader_specs,
+        class_gear=class_gear,
+        buffs=buffs,
+    )
+
+
+def update_roster_from_search_space(
+    roster: AccountRoster,
+    space: SearchSpace,
+) -> AccountRoster:
+    """Update an existing AccountRoster with overrides present in SearchSpace."""
+    # 1. Update owned heroes if search space provides them
+    if any([
+        space.available_mythic_inf,
+        space.available_mythic_cav,
+        space.available_mythic_arc,
+        space.available_joiners,
+    ]):
+        new_owned: dict[str, list[str]] = {}
+        for cls, mythics in (
+            ("Inf", space.available_mythic_inf),
+            ("Cav", space.available_mythic_cav),
+            ("Arc", space.available_mythic_arc),
+        ):
+            heroes = list(mythics)
+            for j in space.available_joiners:
+                if hero_class(j) == cls and j not in heroes:
+                    heroes.append(j)
+            for h in roster.owned_heroes.get(cls, []):
+                if h in NON_COMBAT_FIRST_SKILL_HEROES and h not in heroes:
+                    heroes.append(h)
+            new_owned[cls] = heroes
+    else:
+        new_owned = {cls: list(h) for cls, h in roster.owned_heroes.items()}
+
+    # 2. Update builds from leader specs
+    new_builds = dict(roster.builds)
+    for h, spec in space.leader_specs.items():
+        new_builds[h] = HeroBuild(
+            level=spec.level,
+            widget_level=spec.widget_level,
+            skill_levels=spec.skill_levels,
+        )
+
+    # 3. Update class gear
+    if space.class_gear:
+        new_gear = {cls: dict(slots) for cls, slots in space.class_gear.items()}
+    else:
+        new_gear = {cls: dict(slots) for cls, slots in roster.class_gear.items()}
+
+    # 4. Update bonuses and buffs
+    new_bonuses = replace(space.bonuses)
+    new_buffs = replace(space.buffs)
+
+    return AccountRoster(
+        name=roster.name,
+        generation=roster.generation,
+        owned_heroes=new_owned,
+        builds=new_builds,
+        class_gear=new_gear,
+        bonuses=new_bonuses,
+        buffs=new_buffs,
+    )
+
+
+def roster_to_fighter(
+    roster: AccountRoster,
+    inf_hero: str,
+    cav_hero: str,
+    arc_hero: str,
+    joiners: tuple[str, ...] = (),
+    troops: TroopRoster | None = None,
+    label: str = "Opponent",
+) -> Fighter:
+    """Assemble a Fighter from an AccountRoster by selecting specific leaders & troops.
+
+    - Equips inf_hero, cav_hero, arc_hero with stars, widgets, and skills from roster.builds.
+    - Equips class gear from roster.class_gear for each leader's class.
+    - Populates joiners with their levels from roster.builds.
+    - Injects roster.bonuses and roster.buffs.
+    """
+    def _make_leader(hero_name: str, expected_cls: str) -> LeaderHero:
+        actual_cls = hero_class(hero_name)
+        if actual_cls != expected_cls:
+            raise ValueError(
+                f"leader_{expected_cls.lower()} must be an {expected_cls}-class hero, "
+                f"got {hero_name} ({actual_cls})"
+            )
+        gear = dict(roster.class_gear.get(actual_cls, {}))
+        if hero_name in roster.builds:
+            b = roster.builds[hero_name]
+            return LeaderHero(
+                hero_name=hero_name,
+                level=b.level,
+                widget_level=b.widget_level,
+                skill_levels=b.skill_levels,
+                gear=gear,
+            )
+        default_wl = 0 if hero_name in EPIC_HEROES else 10
+        return LeaderHero(
+            hero_name=hero_name,
+            level="MAX",
+            widget_level=default_wl,
+            gear=gear,
+        )
+
+    leader_inf = _make_leader(inf_hero, "Inf")
+    leader_cav = _make_leader(cav_hero, "Cav")
+    leader_arc = _make_leader(arc_hero, "Arc")
+
+    joiner_heroes: list[JoinerHero] = []
+    for j in joiners:
+        if j in roster.builds:
+            level = roster.builds[j].level
+        else:
+            level = "MAX"
+        joiner_heroes.append(JoinerHero(hero_name=j, level=level))
+
+    return Fighter(
+        label=label,
+        leader_inf=leader_inf,
+        leader_cav=leader_cav,
+        leader_arc=leader_arc,
+        joiners=tuple(joiner_heroes),
+        bonuses=replace(roster.bonuses),
+        troops=troops if troops is not None else TroopRoster(),
+        buffs=replace(roster.buffs),
+    )
+
+
+def account_roster_to_fighter(
+    roster: AccountRoster,
+    current_fighter: Fighter | None = None,
+    default_label: str = "Fighter",
+) -> Fighter:
+    """Translate an AccountRoster into a Fighter.
+
+    - Intelligently selects leaders per class (Inf, Cav, Arc), checking
+      roster.owned_heroes and roster.builds, retaining current_fighter leader
+      if present and owned, falling back to class starters (Eric, Petra, Jaeger).
+    - Gathers up to 4 eligible combat joiners (excluding leaders and
+      NON_COMBAT_FIRST_SKILL_HEROES).
+    - Equips stars, widget levels (0-10), and skills from roster.builds.
+    - Equips class gear from roster.class_gear.
+    - Copies roster.bonuses and roster.buffs.
+    - Preserves current_fighter.troops if provided; defaults to TroopRoster() if None.
+    - Sets label to roster.name or default_label.
+    """
+    def _pick_leader(cls: str, current_hero: str | None, fallback: str) -> str:
+        cls_owned = [h for h in roster.owned_heroes.get(cls, []) if hero_class(h) == cls]
+        if not cls_owned:
+            cls_owned = [h for h in roster.builds if hero_class(h) == cls]
+        if current_hero and current_hero in cls_owned:
+            return current_hero
+        if cls_owned:
+            return cls_owned[0]
+        if current_hero and hero_class(current_hero) == cls:
+            return current_hero
+        return fallback
+
+    curr_inf = current_fighter.leader_inf.hero_name if current_fighter and current_fighter.leader_inf else None
+    curr_cav = current_fighter.leader_cav.hero_name if current_fighter and current_fighter.leader_cav else None
+    curr_arc = current_fighter.leader_arc.hero_name if current_fighter and current_fighter.leader_arc else None
+
+    inf_hero = _pick_leader("Inf", curr_inf, "Eric")
+    cav_hero = _pick_leader("Cav", curr_cav, "Petra")
+    arc_hero = _pick_leader("Arc", curr_arc, "Jaeger")
+
+    joiners: list[str] = []
+    if current_fighter and current_fighter.joiners:
+        joiners = [
+            j.hero_name for j in current_fighter.joiners
+            if j.hero_name not in (inf_hero, cav_hero, arc_hero)
+            and j.hero_name not in NON_COMBAT_FIRST_SKILL_HEROES
+        ]
+    if not joiners:
+        if roster.owned_heroes:
+            for c in ("Inf", "Cav", "Arc"):
+                for h in roster.owned_heroes.get(c, []):
+                    if (h in MYTHIC_HEROES or h in EPIC_HEROES) and (h not in NON_COMBAT_FIRST_SKILL_HEROES):
+                        if h not in (inf_hero, cav_hero, arc_hero) and h not in joiners:
+                            joiners.append(h)
+        elif roster.builds:
+            for h in roster.builds:
+                if (h in MYTHIC_HEROES or h in EPIC_HEROES) and (h not in NON_COMBAT_FIRST_SKILL_HEROES):
+                    if h not in (inf_hero, cav_hero, arc_hero) and h not in joiners:
+                        joiners.append(h)
+    joiners = joiners[:4]
+
+    troops = current_fighter.troops if current_fighter is not None else None
+
+    return roster_to_fighter(
+        roster,
+        inf_hero=inf_hero,
+        cav_hero=cav_hero,
+        arc_hero=arc_hero,
+        joiners=tuple(joiners),
+        troops=troops,
+        label=roster.name or default_label,
+    )
+
+
+def fighter_to_roster(
+    fighter: Fighter,
+    name: str | None = None,
+) -> AccountRoster:
+    """Translate a Fighter into an AccountRoster.
+
+    - Populates owned_heroes and builds from leaders and joiners.
+    - Maps leader gear into class_gear.
+    - Copies bonuses and buffs.
+    - Derives generation (max hero generation, default 8).
+    - Sets name = name or fighter.label.
+    """
+    roster_name = name or fighter.label or "Fighter"
+
+    owned_heroes: dict[str, list[str]] = {"Inf": [], "Cav": [], "Arc": []}
+    for cls, leader in (("Inf", fighter.leader_inf), ("Cav", fighter.leader_cav), ("Arc", fighter.leader_arc)):
+        if leader and leader.hero_name not in owned_heroes[cls]:
+            owned_heroes[cls].append(leader.hero_name)
+
+    for j in fighter.joiners:
+        try:
+            cls = hero_class(j.hero_name)
+        except KeyError:
+            continue
+        if cls in owned_heroes and j.hero_name not in owned_heroes[cls]:
+            owned_heroes[cls].append(j.hero_name)
+
+    builds: dict[str, HeroBuild] = {}
+    for leader in (fighter.leader_inf, fighter.leader_cav, fighter.leader_arc):
+        if leader:
+            builds[leader.hero_name] = HeroBuild(
+                level=leader.level,
+                widget_level=leader.widget_level,
+                skill_levels=leader.skill_levels,
+            )
+
+    for j in fighter.joiners:
+        if j.hero_name not in builds:
+            default_wl = 0 if j.hero_name in EPIC_HEROES else 10
+            builds[j.hero_name] = HeroBuild(
+                level=j.level,
+                widget_level=default_wl,
+            )
+
+    class_gear: dict[str, dict[str, HeroGearPiece]] = {}
+    for cls, leader in (("Inf", fighter.leader_inf), ("Cav", fighter.leader_cav), ("Arc", fighter.leader_arc)):
+        if leader and leader.gear:
+            class_gear[cls] = dict(leader.gear)
+
+    all_heroes = [
+        fighter.leader_inf.hero_name,
+        fighter.leader_cav.hero_name,
+        fighter.leader_arc.hero_name,
+    ] + [j.hero_name for j in fighter.joiners]
+    hero_gens = [HERO_GENERATION[h] for h in all_heroes if h in HERO_GENERATION]
+    generation = max(hero_gens) if hero_gens else 8
+
+    return AccountRoster(
+        name=roster_name,
+        generation=generation,
+        owned_heroes=owned_heroes,
+        builds=builds,
+        class_gear=class_gear,
+        bonuses=replace(fighter.bonuses),
+        buffs=replace(fighter.buffs),
+    )
+
+
+def apply_roster_to_benchmark(roster: AccountRoster) -> None:
+    """Hydrate Benchmark tab session state from an AccountRoster."""
+    try:
+        import streamlit as st
+        ss = st.session_state
+        if ss is None or not hasattr(ss, "__setitem__"):
+            return
+    except Exception:
+        return
+
+    ss["_bm_master_gen"] = roster.generation
+    ss["_bm_gen"] = roster.generation
+    ss["_bm_master_builds"] = dict(roster.builds)
+
+    for cls in ("Inf", "Cav", "Arc"):
+        owned = list(roster.owned_heroes.get(cls, []))
+        ss[f"_bm_own_{cls}"] = owned
+        ss[f"_bm_own_{cls}_{roster.generation}"] = owned
+
+    for h, b in roster.builds.items():
+        star, sub_tier = _safe_star_subtier(b.level)
+        ss[f"_bm_star_{h}"] = star
+        ss[f"_bm_tier_{h}"] = sub_tier
+        ss[f"_bm_wl_{h}"] = b.widget_level
+        ss[f"_bm_star_{h}_{roster.generation}"] = star
+        ss[f"_bm_tier_{h}_{roster.generation}"] = sub_tier
+        ss[f"_bm_wl_{h}_{roster.generation}"] = b.widget_level
+
+    ss["_bm_class_gear"] = {cls: dict(slots) for cls, slots in roster.class_gear.items()}
+    ss["_bm_bonuses"] = replace(roster.bonuses)
+    ss["_bm_buffs"] = replace(roster.buffs)
+    ss["_bm_active_roster"] = roster.name
+    ss["_ks_active_roster"] = roster.name
+
+
+def extract_roster_from_benchmark(roster: AccountRoster) -> AccountRoster:
+    """Extract modified hero builds and owned states from Benchmark session state."""
+    try:
+        import streamlit as st
+        ss = st.session_state
+        if ss is None or not hasattr(ss, "get"):
+            ss = None
+    except Exception:
+        ss = None
+
+    if ss is None:
+        return AccountRoster(
+            name=roster.name,
+            generation=roster.generation,
+            owned_heroes={cls: list(h) for cls, h in roster.owned_heroes.items()},
+            builds=dict(roster.builds),
+            class_gear={cls: dict(slots) for cls, slots in roster.class_gear.items()},
+            bonuses=replace(roster.bonuses),
+            buffs=replace(roster.buffs),
+        )
+
+    gen = int(ss.get("_bm_master_gen", ss.get("_bm_gen", roster.generation)))
+
+    new_owned: dict[str, list[str]] = {}
+    for cls in ("Inf", "Cav", "Arc"):
+        owned = ss.get(f"_bm_own_{cls}_{gen}", ss.get(f"_bm_own_{cls}"))
+        if owned is not None:
+            new_owned[cls] = [h for h in owned if hero_class(h) == cls]
+        else:
+            new_owned[cls] = list(roster.owned_heroes.get(cls, []))
+
+    new_builds = dict(roster.builds)
+    if "_bm_master_builds" in ss and isinstance(ss["_bm_master_builds"], dict):
+        for h, b in ss["_bm_master_builds"].items():
+            if isinstance(b, HeroBuild):
+                new_builds[h] = b
+
+    for cls in ("Inf", "Cav", "Arc"):
+        for h in new_owned.get(cls, []):
+            has_star = f"_bm_star_{h}_{gen}" in ss or f"_bm_star_{h}" in ss
+            has_tier = f"_bm_tier_{h}_{gen}" in ss or f"_bm_tier_{h}" in ss
+            has_wl = f"_bm_wl_{h}_{gen}" in ss or f"_bm_wl_{h}" in ss
+            if has_star or has_tier or has_wl:
+                star = ss.get(f"_bm_star_{h}_{gen}", ss.get(f"_bm_star_{h}", 5))
+                tier = ss.get(f"_bm_tier_{h}_{gen}", ss.get(f"_bm_tier_{h}", 0))
+                default_wl = 0 if h in EPIC_HEROES else 4
+                wl = ss.get(f"_bm_wl_{h}_{gen}", ss.get(f"_bm_wl_{h}", default_wl))
+                level = "MAX" if int(star) >= 5 else f"{int(star)}_{int(tier)}"
+                existing_skills = new_builds[h].skill_levels if h in new_builds else None
+                new_builds[h] = HeroBuild(
+                    level=level,
+                    widget_level=int(wl),
+                    skill_levels=existing_skills,
+                )
+
+    new_gear = ss.get(
+        "_bm_class_gear",
+        {cls: dict(slots) for cls, slots in roster.class_gear.items()},
+    )
+    new_bonuses = ss.get("_bm_bonuses", replace(roster.bonuses))
+    new_buffs = ss.get("_bm_buffs", replace(roster.buffs))
+
+    return AccountRoster(
+        name=roster.name,
+        generation=gen,
+        owned_heroes=new_owned,
+        builds=new_builds,
+        class_gear={cls: dict(slots) for cls, slots in new_gear.items()} if isinstance(new_gear, dict) else {},
+        bonuses=replace(new_bonuses) if isinstance(new_bonuses, BonusVector) else BonusVector(),
+        buffs=replace(new_buffs) if isinstance(new_buffs, Buffs) else Buffs(),
+    )
+
+
+__all__ = [
+    "account_roster_to_fighter",
+    "fighter_to_roster",
+    "roster_to_search_space",
+    "update_roster_from_search_space",
+    "roster_to_fighter",
+    "apply_roster_to_benchmark",
+    "extract_roster_from_benchmark",
+]

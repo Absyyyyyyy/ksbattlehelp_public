@@ -168,7 +168,7 @@ def render_running_panel(
         with c1:
             if not job.cancel_event.is_set():
                 if st.button(
-                    "⏹ Cancel", key=cancel_key, use_container_width=True
+                    "⏹ Cancel", key=cancel_key, width="stretch"
                 ):
                     job.cancel_event.set()
                     st.rerun(scope="fragment")

@@ -47,6 +47,8 @@ def easy_mode_fighter_form(
     default: Fighter,
     key_prefix: str,
     side: str = "attacker",
+    roster: Optional[Any] = None,
+    builds: Optional[dict[str, Any]] = None,
 ) -> Fighter:
     state = _quiz_state(key_prefix)
 
@@ -60,7 +62,7 @@ def easy_mode_fighter_form(
         )
     with hdr_cols[1]:
         if st.button("↻ Reset quiz", key=f"{key_prefix}_em_reset",
-                       use_container_width=True,
+                       width="stretch",
                        help="Clear all answers and start the quiz over."):
             _reset_quiz(key_prefix)
             st.rerun()
@@ -80,7 +82,7 @@ def easy_mode_fighter_form(
     _render_q1(key_prefix, state)
     _render_q2(key_prefix, state)
     _render_q3(key_prefix, state)
-    _render_q4(key_prefix, state, default)
+    _render_q4(key_prefix, state, default, roster=roster, builds=builds)
     _render_q5(key_prefix, state, default)
     _render_q6_summary(key_prefix, state, label, default)
 
@@ -114,7 +116,7 @@ def _step_header(label: str, done: bool, key: str, locked: bool = False,
             st.markdown(f"**{label}**")
         with cols[1]:
             if st.button("Edit", key=f"{key}_edit",
-                           use_container_width=True):
+                           width="stretch"):
                 st.session_state[f"{key}_editing"] = True
                 st.rerun()
         if st.session_state.get(f"{key}_editing", False):
@@ -467,7 +469,7 @@ def _render_q1a_stats(key_prefix: str, state: dict, edit_key: str, ocr_side: str
         else:
             if st.button("Enter values manually. Same result",
                            key=f"{sub_edit_key}_skip", type="primary",
-                           use_container_width=True):
+                           width="stretch"):
                 _commit_step(state, sub_key, sub_edit_key)
                 st.rerun()
 
@@ -578,7 +580,7 @@ def _render_q1c_buffs(key_prefix: str, state: dict, edit_key: str, ocr_side: str
             st.image(str(_EXAMPLE_BUFFS_SCREENSHOT),
                        caption="'Notes on Special Bonuses' popup. Your value "
                                "is the LEFT column; the opponent's is the right.",
-                       use_container_width=True)
+                       width="stretch")
         else:
             st.markdown("**What we expect**")
             st.caption(
@@ -654,7 +656,7 @@ def _render_buff_aggregate_preview(agg: "BuffAggregate") -> None:
             "Value": f"{l.value_pct:+.1f}%",
             "Review": "" if l.needs_review else "",
         })
-    st.dataframe(rows, hide_index=True, use_container_width=True)
+    st.dataframe(rows, hide_index=True, width="stretch")
 
     net = []
     for stat in ("atk", "def", "let", "hp"):
@@ -669,7 +671,7 @@ def _render_buff_aggregate_preview(agg: "BuffAggregate") -> None:
         })
     if net:
         st.caption("Net totals (summed across all sources, applied to all squads):")
-        st.dataframe(net, hide_index=True, use_container_width=True)
+        st.dataframe(net, hide_index=True, width="stretch")
 
 
 def _render_ocr_debug_expander(
@@ -714,7 +716,7 @@ def _render_ocr_debug_expander(
                     for t in sorted(hits, key=lambda t: t["y"])
                 ]
             )
-            st.dataframe(df, hide_index=True, use_container_width=True)
+            st.dataframe(df, hide_index=True, width="stretch")
             st.caption(
                 "**Reading tip**: tokens on roughly the same `y` line "
                 "form a header phrase. If you see `Troop` and `Power` "
@@ -738,19 +740,19 @@ def _render_ocr_debug_expander(
                     for t in tokens
                 ]
             )
-            st.dataframe(df_all, hide_index=True, use_container_width=True)
+            st.dataframe(df_all, hide_index=True, width="stretch")
 
 
 def _render_upload_preview(uploaded_file, example_path, example_caption: str) -> None:
     if uploaded_file is not None:
         st.markdown("**What you uploaded**")
-        st.image(uploaded_file, use_container_width=True,
+        st.image(uploaded_file, width="stretch",
                  caption="Tap to inspect. Re-upload if it looks wrong.")
         return
     st.markdown("**Example of what we expect**")
     if example_path is not None and example_path.exists():
         st.image(str(example_path), caption=example_caption,
-                 use_container_width=True)
+                 width="stretch")
     else:
         st.caption(example_caption)
 
@@ -1192,7 +1194,13 @@ def _render_q3(key_prefix: str, state: dict) -> None:
         st.rerun()
 
 
-def _render_q4(key_prefix: str, state: dict, default: Fighter) -> None:
+def _render_q4(
+    key_prefix: str,
+    state: dict,
+    default: Fighter,
+    roster: Optional[Any] = None,
+    builds: Optional[dict[str, Any]] = None,
+) -> None:
     step_key = "q4_done"
     edit_key = f"{key_prefix}_em_q4"
     locked = not state.get("q3_done", False) and not _buffs_captured_from_ocr(state)
@@ -1226,14 +1234,32 @@ def _render_q4(key_prefix: str, state: dict, default: Fighter) -> None:
             default.leader_inf, default.leader_cav, default.leader_arc,
         )
 
-    inf = leader_form(label="Infantry leader", klass="Inf",
-                          default=cur_inf, key_prefix=f"{edit_key}_inf")
+    inf = leader_form(
+        label="Infantry leader",
+        klass="Inf",
+        default=cur_inf,
+        key_prefix=f"{edit_key}_inf",
+        roster=roster,
+        builds=builds,
+    )
     st.markdown("---")
-    cav = leader_form(label="Cavalry leader", klass="Cav",
-                          default=cur_cav, key_prefix=f"{edit_key}_cav")
+    cav = leader_form(
+        label="Cavalry leader",
+        klass="Cav",
+        default=cur_cav,
+        key_prefix=f"{edit_key}_cav",
+        roster=roster,
+        builds=builds,
+    )
     st.markdown("---")
-    arc = leader_form(label="Archer leader", klass="Arc",
-                          default=cur_arc, key_prefix=f"{edit_key}_arc")
+    arc = leader_form(
+        label="Archer leader",
+        klass="Arc",
+        default=cur_arc,
+        key_prefix=f"{edit_key}_arc",
+        roster=roster,
+        builds=builds,
+    )
 
     if st.button("✓ Confirm trio", key=f"{edit_key}_confirm", type="primary"):
         state["trio"] = (inf, cav, arc)
@@ -1284,7 +1310,7 @@ def _render_q5(key_prefix: str, state: dict, default: Fighter) -> None:
     with c2:
         skip_state_key = f"{edit_key}_skip_confirming"
         if st.button("Skip joiners…", key=f"{edit_key}_skip_btn",
-                       use_container_width=True):
+                       width="stretch"):
             st.session_state[skip_state_key] = True
         if st.session_state.get(skip_state_key, False):
             st.warning(
@@ -1297,13 +1323,13 @@ def _render_q5(key_prefix: str, state: dict, default: Fighter) -> None:
             sc1, sc2 = st.columns(2)
             with sc1:
                 if st.button("Cancel", key=f"{edit_key}_skip_cancel",
-                               use_container_width=True):
+                               width="stretch"):
                     st.session_state.pop(skip_state_key, None)
                     st.rerun()
             with sc2:
                 if st.button("Skip anyway", key=f"{edit_key}_skip_ok",
                                type="primary",
-                               use_container_width=True):
+                               width="stretch"):
                     state["joiners"] = ()
                     st.session_state.pop(skip_state_key, None)
                     _commit_step(state, step_key, edit_key)
@@ -1337,7 +1363,7 @@ def _render_q6_summary(key_prefix: str, state: dict, label: str, default: Fighte
         for stat in ("atk", "def", "let", "hp"):
             row[stat.upper()] = f"{getattr(bv, f'{klass}_{stat}_pct'):.1f}%"
         cells.append(row)
-    st.dataframe(cells, hide_index=True, use_container_width=True)
+    st.dataframe(cells, hide_index=True, width="stretch")
 
     if not state.get(step_key, False):
         if st.button("✓ Use these values & open the editor", key=f"{edit_key}_confirm",
@@ -1442,19 +1468,23 @@ def fighter_form_with_mode(
     key_prefix: str,
     side: str = "attacker",
     allow_easy_mode: bool = True,
+    roster: Optional[Any] = None,
+    builds: Optional[dict[str, Any]] = None,
 ) -> Fighter:
     if not allow_easy_mode:
         from .forms import fighter_form
-        return fighter_form(default, key_prefix=key_prefix, side=side)
+        return fighter_form(default, key_prefix=key_prefix, side=side, roster=roster, builds=builds)
 
     toggle_key = f"{key_prefix}_input_mode"
     current = st.session_state.get(toggle_key, "Easy")
+    radio_key = f"{toggle_key}_radio"
+    radio_idx = None if radio_key in st.session_state else (0 if current.startswith("Easy") else 1)
     mode = st.radio(
         "Input mode",
         ["Easy (upload screenshot)", "Advanced (manual entry)"],
-        index=0 if current.startswith("Easy") else 1,
+        index=radio_idx,
         horizontal=True,
-        key=f"{toggle_key}_radio",
+        key=radio_key,
         label_visibility="collapsed",
     )
     st.session_state[toggle_key] = "Easy" if mode.startswith("Easy") else "Advanced"
@@ -1470,6 +1500,9 @@ def fighter_form_with_mode(
     gen = int(st.session_state[gen_key])
     effective_prefix = f"{key_prefix}_g{gen}"
 
+    if roster is None:
+        roster = st.session_state.get(f"{key_prefix}_roster")
+
     from .forms import fighter_form
 
     quiz_done = (
@@ -1478,7 +1511,7 @@ def fighter_form_with_mode(
     )
 
     if is_easy and not quiz_done:
-        return easy_mode_fighter_form(default, key_prefix=key_prefix, side=side)
+        return easy_mode_fighter_form(default, key_prefix=key_prefix, side=side, roster=roster, builds=builds)
 
     if is_easy and quiz_done:
         banner_anchor = f"{key_prefix}_post_import_banner"
@@ -1488,7 +1521,7 @@ def fighter_form_with_mode(
             st.success("Imported from screenshot. Review or tweak the panels below.")
         with cols[1]:
             if st.button("Re-import", key=f"{key_prefix}_reimport",
-                           use_container_width=True,
+                           width="stretch",
                            help="Discard the imported values and run the quiz again."):
                 st.session_state[f"{key_prefix}_easy_quiz"] = {}
                 st.session_state.pop(f"{key_prefix}_easy_complete", None)
@@ -1496,7 +1529,7 @@ def fighter_form_with_mode(
         if st.session_state.pop(f"{key_prefix}_scroll_to_banner", False):
             _scroll_to(banner_anchor)
 
-    return fighter_form(default, effective_prefix, side=side)
+    return fighter_form(default, effective_prefix, side=side, roster=roster, builds=builds)
 
 
 _BONUS_FIELDS: tuple[str, ...] = (
@@ -1592,7 +1625,7 @@ def searchspace_easy_import_render(
         )
     with cols[1]:
         if st.button("↻ Reset", key=f"{key_prefix}_ss_reset",
-                       use_container_width=True):
+                       width="stretch"):
             searchspace_easy_import_reset(key_prefix)
             st.rerun()
 
@@ -1653,7 +1686,7 @@ def _render_q6_searchspace(
         "**Account stat bonuses** panel below. Buffs from Q3 will "
         "populate the **Your buffs** panel."
     )
-    st.dataframe(cells, hide_index=True, use_container_width=True)
+    st.dataframe(cells, hide_index=True, width="stretch")
 
     if not state.get(step_key, False):
         if st.button("✓ Use these values & open the editor",

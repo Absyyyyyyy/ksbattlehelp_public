@@ -33,11 +33,21 @@ def _skill_levels_subform(
             saved = default_levels[i] if i < len(default_levels) else cap
             init = max(1, min(int(saved), cap))
             options = list(range(1, cap + 1))
+            skey = f"{key_prefix}_{slot}_lvl"
+            if skey in st.session_state:
+                curr_val = st.session_state[skey]
+                if isinstance(curr_val, int):
+                    if curr_val > cap:
+                        st.session_state[skey] = cap
+                    elif curr_val < 1:
+                        st.session_state[skey] = 1
+            cur_in_state = st.session_state.get(skey)
+            idx = options.index(cur_in_state) if cur_in_state in options else options.index(init)
             chosen = st.selectbox(
                 f"{slot.upper()}",
                 options,
-                index=options.index(init),
-                key=f"{key_prefix}_{slot}_lvl",
+                index=idx,
+                key=skey,
             )
             out.append(int(chosen))
     return (out[0], out[1], out[2])
@@ -67,6 +77,8 @@ def leader_form(
     default: Optional[LeaderHero],
     key_prefix: str,
     mythics_filter: Optional[tuple[str, ...]] = None,
+    roster: Optional[Any] = None,
+    builds: Optional[dict[str, Any]] = None,
 ) -> LeaderHero:
     if klass == "Inf":
         choices = _INF_MYTHICS
@@ -94,15 +106,93 @@ def leader_form(
                               index=choices.index(default_name),
                               key=f"{key_prefix}_name",
                               label_visibility="collapsed")
+
+    # Detect hero switch and update level, widget, and skills
+    hero_cache = st.session_state.setdefault(f"{key_prefix}_hero_cache", {})
+    tracked_hero_key = f"{key_prefix}_tracked_hero"
+    prev_hero = st.session_state.get(tracked_hero_key)
+
+    effective_builds = builds
+    if effective_builds is None and roster is not None and hasattr(roster, "builds"):
+        effective_builds = roster.builds
+    if effective_builds is None:
+        act_name = st.session_state.get("_ks_active_roster")
+        if not act_name:
+            try:
+                from kingshot_sim.webui import persistence
+                saved_rosters = persistence.list_rosters()
+                if saved_rosters:
+                    act_name = saved_rosters[0]
+            except Exception:
+                pass
+        if act_name:
+            try:
+                from kingshot_sim.webui import persistence
+                act_r = persistence.load_roster(act_name)
+                effective_builds = act_r.builds
+            except Exception:
+                pass
+
+    if prev_hero is None:
+        st.session_state[tracked_hero_key] = name
+        if effective_builds and name in effective_builds:
+            b = effective_builds[name]
+            sl = b.skill_levels if b.skill_levels is not None else default_skill_levels(b.level)
+            target = {"level": b.level, "widget": int(b.widget_level), "skills": sl}
+            hero_cache[name] = target
+            st.session_state.setdefault(f"{key_prefix}_level", target["level"])
+            st.session_state.setdefault(f"{key_prefix}_widget", int(target["widget"]))
+            for s_idx, slot in enumerate(("sk1", "sk2", "sk3")):
+                st.session_state.setdefault(f"{key_prefix}_{slot}_lvl", target["skills"][s_idx])
+        elif name not in hero_cache:
+            hero_cache[name] = {
+                "level": default_level,
+                "widget": default_widget,
+                "skills": default_skill,
+            }
+    elif prev_hero != name:
+        st.session_state[tracked_hero_key] = name
+        if effective_builds and name in effective_builds:
+            b = effective_builds[name]
+            sl = b.skill_levels if b.skill_levels is not None else default_skill_levels(b.level)
+            target = {"level": b.level, "widget": int(b.widget_level), "skills": sl}
+            hero_cache[name] = target
+        elif name in hero_cache:
+            target = hero_cache[name]
+        else:
+            def_wl = 0 if name in EPIC_HEROES else 10
+            target = {"level": "MAX", "widget": def_wl, "skills": default_skill_levels("MAX")}
+            hero_cache[name] = target
+
+        st.session_state[f"{key_prefix}_level"] = target["level"]
+        st.session_state[f"{key_prefix}_widget"] = int(target["widget"])
+        for s_idx, slot in enumerate(("sk1", "sk2", "sk3")):
+            st.session_state[f"{key_prefix}_{slot}_lvl"] = target["skills"][s_idx]
+        st.rerun()
+
+    lvl_val = st.session_state.get(f"{key_prefix}_level", default_level)
+    level_idx = _LEVEL_KEYS.index(lvl_val) if lvl_val in _LEVEL_KEYS else len(_LEVEL_KEYS) - 1
     with cols[1]:
-        level_idx = _LEVEL_KEYS.index(default_level) if default_level in _LEVEL_KEYS else len(_LEVEL_KEYS) - 1
         level = st.selectbox("Level", _LEVEL_KEYS, index=level_idx,
                               key=f"{key_prefix}_level")
+
+    w_val = st.session_state.get(f"{key_prefix}_widget", default_widget)
     with cols[2]:
-        widget = st.slider("Widget", 0, 10, default_widget, key=f"{key_prefix}_widget")
+        widget = st.slider("Widget", 0, 10, int(w_val), key=f"{key_prefix}_widget")
 
     st.caption("Skill levels (capped by hero star)")
-    skill_levels = _skill_levels_subform(level, default_skill, key_prefix)
+    cur_skills = (
+        st.session_state.get(f"{key_prefix}_sk1_lvl", default_skill[0]),
+        st.session_state.get(f"{key_prefix}_sk2_lvl", default_skill[1]),
+        st.session_state.get(f"{key_prefix}_sk3_lvl", default_skill[2]),
+    )
+    skill_levels = _skill_levels_subform(level, cur_skills, key_prefix)
+
+    hero_cache[name] = {
+        "level": level,
+        "widget": widget,
+        "skills": skill_levels,
+    }
 
     with st.expander(f"Gear contribution ({label})", expanded=False):
         gatk, gdef, glet, ghp, gear_dict = _gear_subform(
@@ -569,16 +659,22 @@ def buffs_form(default: "Buffs", key_prefix: str) -> "Buffs":
     )
 
 
-def fighter_form(default: Fighter, key_prefix: str, side: str = "own") -> Fighter:
+def fighter_form(
+    default: Fighter,
+    key_prefix: str,
+    side: str = "own",
+    roster: Optional[Any] = None,
+    builds: Optional[dict[str, Any]] = None,
+) -> Fighter:
     label = st.text_input("Label", value=default.label, key=f"{key_prefix}_label")
 
     with st.expander(
         "Leaders: 3 mythics, one per class (no duplicates)",
         expanded=False,
     ):
-        leader_inf = leader_form("Infantry leader", "Inf", default.leader_inf, f"{key_prefix}_li")
-        leader_cav = leader_form("Cavalry leader",  "Cav", default.leader_cav, f"{key_prefix}_lc")
-        leader_arc = leader_form("Archer leader",   "Arc", default.leader_arc, f"{key_prefix}_la")
+        leader_inf = leader_form("Infantry leader", "Inf", default.leader_inf, f"{key_prefix}_li", roster=roster, builds=builds)
+        leader_cav = leader_form("Cavalry leader",  "Cav", default.leader_cav, f"{key_prefix}_lc", roster=roster, builds=builds)
+        leader_arc = leader_form("Archer leader",   "Arc", default.leader_arc, f"{key_prefix}_la", roster=roster, builds=builds)
 
     with st.expander(
         "Joiners: up to 4 (duplicates allowed for stacking)",

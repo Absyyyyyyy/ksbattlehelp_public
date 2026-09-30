@@ -12,6 +12,7 @@ from kingshot_sim.webui.easy_mode_form import (
     fighter_form_with_mode, is_easy_mode, easy_mode_rally_flag,
 )
 from kingshot_sim.webui import persistence, components, runtime_stats
+from kingshot_sim.io_pkg.roster_bridge import account_roster_to_fighter
 
 
 def render() -> None:
@@ -26,22 +27,50 @@ def render() -> None:
     if "qf_defender" not in st.session_state:
         st.session_state.qf_defender = empty_fighter("Defender")
 
-    profiles = persistence.list_profiles()
-    if profiles:
+    rosters = persistence.list_rosters()
+    if rosters:
+        active_roster = st.session_state.get("_ks_active_roster")
+        if not active_roster and rosters:
+            active_roster = rosters[0]
+
+        if "qf_att_roster" not in st.session_state and active_roster in rosters:
+            try:
+                st.session_state["qf_att_roster"] = persistence.load_roster(active_roster)
+            except Exception:
+                pass
+
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            sel_a = st.selectbox("Load attacker", ["—"] + profiles, key="qf_load_att")
+            sel_a = st.selectbox("Load attacker", ["—"] + rosters, key="qf_load_att_roster")
         with c2:
-            if st.button("→ Attacker", key="qf_btn_load_att", use_container_width=True):
+            if st.button("→ Attacker", key="qf_btn_load_att", width="stretch"):
                 if sel_a != "—":
-                    st.session_state.qf_attacker = persistence.load_profile(sel_a)
+                    loaded_r = persistence.load_roster(sel_a)
+                    curr = st.session_state.qf_attacker
+                    st.session_state.qf_attacker = account_roster_to_fighter(
+                        loaded_r, curr, default_label="Attacker",
+                    )
+                    st.session_state["qf_att_roster"] = loaded_r
+                    gen_key = "qf_att_form_gen"
+                    st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
+                    st.session_state["qf_att_input_mode"] = "Advanced"
+                    st.session_state["qf_att_input_mode_radio"] = "Advanced (manual entry)"
                     st.rerun()
         with c3:
-            sel_d = st.selectbox("Load defender", ["—"] + profiles, key="qf_load_def")
+            sel_d = st.selectbox("Load defender", ["—"] + rosters, key="qf_load_def_roster")
         with c4:
-            if st.button("→ Defender", key="qf_btn_load_def", use_container_width=True):
+            if st.button("→ Defender", key="qf_btn_load_def", width="stretch"):
                 if sel_d != "—":
-                    st.session_state.qf_defender = persistence.load_profile(sel_d)
+                    loaded_r = persistence.load_roster(sel_d)
+                    curr = st.session_state.qf_defender
+                    st.session_state.qf_defender = account_roster_to_fighter(
+                        loaded_r, curr, default_label="Defender",
+                    )
+                    st.session_state["qf_def_roster"] = loaded_r
+                    gen_key = "qf_def_form_gen"
+                    st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
+                    st.session_state["qf_def_input_mode"] = "Advanced"
+                    st.session_state["qf_def_input_mode_radio"] = "Advanced (manual entry)"
                     st.rerun()
         st.markdown("---")
 
@@ -50,7 +79,12 @@ def render() -> None:
         components.render_subheading("Attacker")
         _render_trio_strip(st.session_state.qf_attacker)
         try:
-            attacker = fighter_form_with_mode(st.session_state.qf_attacker, key_prefix="qf_att", side="attacker")
+            attacker = fighter_form_with_mode(
+                st.session_state.qf_attacker,
+                key_prefix="qf_att",
+                side="attacker",
+                roster=st.session_state.get("qf_att_roster"),
+            )
             st.session_state.qf_attacker = attacker
         except Exception as e:
             st.error(f"Invalid attacker: {e}")
@@ -85,7 +119,12 @@ def render() -> None:
         components.render_subheading("Defender")
         _render_trio_strip(st.session_state.qf_defender)
         try:
-            defender = fighter_form_with_mode(st.session_state.qf_defender, key_prefix="qf_def", side="defender")
+            defender = fighter_form_with_mode(
+                st.session_state.qf_defender,
+                key_prefix="qf_def",
+                side="defender",
+                roster=st.session_state.get("qf_def_roster"),
+            )
             st.session_state.qf_defender = defender
         except Exception as e:
             st.error(f"Invalid defender: {e}")
@@ -111,7 +150,7 @@ def render() -> None:
         seed = st.number_input("Random seed", 0, 2**31 - 1, 42, key="qf_seed",
                                  help="For reproducible randomness.")
     with rcols[3]:
-        run_btn = st.button("▶ Run battle", use_container_width=True,
+        run_btn = st.button("▶ Run battle", width="stretch",
                              type="primary", key="qf_run")
 
     if not run_btn:
@@ -216,7 +255,7 @@ def _render_single_result(result, attacker: Fighter, defender: Fighter,
     components.render_subheading("Round-by-round troop counts")
     fig = _round_chart(result, initial_att, initial_def)
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _render_casualty_table(initial_att: dict, att_lost: dict,
@@ -296,7 +335,7 @@ def _render_mc_result(mc) -> None:
             margin=dict(l=10, r=10, t=10, b=10), height=300,
         )
         components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def _round_chart(result, initial_att: dict, initial_def: dict) -> go.Figure:

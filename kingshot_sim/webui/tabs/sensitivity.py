@@ -10,6 +10,7 @@ from kingshot_sim.sensitivity import (
 )
 from kingshot_sim.webui.forms import fighter_form, empty_fighter
 from kingshot_sim.webui import persistence, components
+from kingshot_sim.io_pkg.roster_bridge import account_roster_to_fighter
 
 
 def render() -> None:
@@ -30,30 +31,62 @@ def render() -> None:
     if "sn_defender" not in st.session_state:
         st.session_state.sn_defender = empty_fighter("Defender")
 
-    profiles = persistence.list_profiles()
-    if profiles:
+    rosters = persistence.list_rosters()
+    if rosters:
+        active_roster = st.session_state.get("_ks_active_roster")
+        if not active_roster and rosters:
+            active_roster = rosters[0]
+
+        if "sn_att_roster" not in st.session_state and active_roster in rosters:
+            try:
+                st.session_state["sn_att_roster"] = persistence.load_roster(active_roster)
+            except Exception:
+                pass
+
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            sel_a = st.selectbox("Load attacker", ["—"] + profiles, key="sn_load_att")
+            sel_a = st.selectbox("Load attacker", ["—"] + rosters, key="sn_load_att_roster")
         with c2:
-            if st.button("→ Attacker", key="sn_btn_att", use_container_width=True):
+            if st.button("→ Attacker", key="sn_btn_att", width="stretch"):
                 if sel_a != "—":
-                    st.session_state.sn_attacker = persistence.load_profile(sel_a)
+                    loaded_r = persistence.load_roster(sel_a)
+                    curr = st.session_state.sn_attacker
+                    st.session_state.sn_attacker = account_roster_to_fighter(
+                        loaded_r, curr, default_label="Attacker",
+                    )
+                    st.session_state["sn_att_roster"] = loaded_r
+                    gen_key = "sn_att_gen"
+                    st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
                     st.rerun()
         with c3:
-            sel_d = st.selectbox("Load defender", ["—"] + profiles, key="sn_load_def")
+            sel_d = st.selectbox("Load defender", ["—"] + rosters, key="sn_load_def_roster")
         with c4:
-            if st.button("→ Defender", key="sn_btn_def", use_container_width=True):
+            if st.button("→ Defender", key="sn_btn_def", width="stretch"):
                 if sel_d != "—":
-                    st.session_state.sn_defender = persistence.load_profile(sel_d)
+                    loaded_r = persistence.load_roster(sel_d)
+                    curr = st.session_state.sn_defender
+                    st.session_state.sn_defender = account_roster_to_fighter(
+                        loaded_r, curr, default_label="Defender",
+                    )
+                    st.session_state["sn_def_roster"] = loaded_r
+                    gen_key = "sn_def_gen"
+                    st.session_state[gen_key] = int(st.session_state.get(gen_key, 0)) + 1
                     st.rerun()
         st.markdown("---")
+
+    att_gen = st.session_state.get("sn_att_gen", 0)
+    def_gen = st.session_state.get("sn_def_gen", 0)
 
     left, right = st.columns(2)
     with left:
         with st.expander("Attacker", expanded=False):
             try:
-                attacker = fighter_form(st.session_state.sn_attacker, key_prefix="sn_att", side="attacker")
+                attacker = fighter_form(
+                    st.session_state.sn_attacker,
+                    key_prefix=f"sn_att_g{att_gen}",
+                    side="attacker",
+                    roster=st.session_state.get("sn_att_roster"),
+                )
                 st.session_state.sn_attacker = attacker
             except Exception as e:
                 st.error(f"Attacker invalid: {e}")
@@ -61,7 +94,12 @@ def render() -> None:
     with right:
         with st.expander("Defender", expanded=False):
             try:
-                defender = fighter_form(st.session_state.sn_defender, key_prefix="sn_def", side="defender")
+                defender = fighter_form(
+                    st.session_state.sn_defender,
+                    key_prefix=f"sn_def_g{def_gen}",
+                    side="defender",
+                    roster=st.session_state.get("sn_def_roster"),
+                )
                 st.session_state.sn_defender = defender
             except Exception as e:
                 st.error(f"Defender invalid: {e}")
@@ -119,7 +157,7 @@ def render() -> None:
     with mcols[2]:
         seed = st.number_input("Seed", 0, 2**31 - 1, 42, key="sn_seed")
     with mcols[3]:
-        run_btn = st.button("▶ Run sweep", use_container_width=True,
+        run_btn = st.button("▶ Run sweep", width="stretch",
                               type="primary", key="sn_run")
 
     if not run_btn:
@@ -192,7 +230,7 @@ def _render_curve(result: SweepResult) -> None:
         margin=dict(l=10, r=10, t=10, b=10), height=400,
     )
     components.apply_plotly_theme(fig, dark=components.is_dark_mode())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     with st.expander("Sweep data", expanded=False):
         import pandas as pd
@@ -206,4 +244,4 @@ def _render_curve(result: SweepResult) -> None:
                 row["CI low"]  = f"{p.score_ci_low:+.4f}"  if p.score_ci_low  is not None else "—"
                 row["CI high"] = f"{p.score_ci_high:+.4f}" if p.score_ci_high is not None else "—"
             rows.append(row)
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
