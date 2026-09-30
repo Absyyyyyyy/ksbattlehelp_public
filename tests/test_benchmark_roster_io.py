@@ -1,8 +1,7 @@
 from pathlib import Path
-import pytest
 from kingshot_sim.benchmark.runner import HeroBuild
 from kingshot_sim.io_pkg.rosters import (
-    BenchmarkRoster,
+    AccountRoster,
     roster_to_dict,
     roster_from_dict,
     roster_to_json,
@@ -13,7 +12,7 @@ from kingshot_sim.io_pkg.rosters import (
 
 
 def test_benchmark_roster_roundtrip_dict():
-    roster = BenchmarkRoster(
+    roster = AccountRoster(
         name="Test Roster",
         generation=7,
         owned_heroes={"Inf": ["Amadeus"], "Cav": ["Jabel", "Margot"], "Arc": ["Yang"]},
@@ -40,9 +39,9 @@ def test_benchmark_roster_roundtrip_dict():
 
 
 def test_benchmark_roster_roundtrip_json(tmp_path: Path):
-    roster = BenchmarkRoster(
+    roster = AccountRoster(
         name="JSON Roster",
-        generation=8,
+        generation=7,
         owned_heroes={"Inf": ["Helga"]},
         builds={"Helga": HeroBuild(level="5_0", widget_level=0)},
     )
@@ -180,7 +179,7 @@ def test_benchmark_roster_filters_unknown_heroes():
 
 
 def test_benchmark_roster_with_skill_levels():
-    roster = BenchmarkRoster(
+    roster = AccountRoster(
         name="Skills Roster",
         generation=4,
         owned_heroes={"Cav": ["Margot"]},
@@ -193,7 +192,7 @@ def test_benchmark_roster_with_skill_levels():
 
 
 def test_benchmark_roster_file_io_string_path_and_nested_dir(tmp_path: Path):
-    roster = BenchmarkRoster(
+    roster = AccountRoster(
         name="Nested File Roster",
         generation=2,
     )

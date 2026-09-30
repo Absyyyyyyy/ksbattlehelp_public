@@ -5,7 +5,7 @@ from typing import Any
 from kingshot_sim.config.fighter import Fighter
 from kingshot_sim.optimizer.search_space import SearchSpace
 from kingshot_sim.io_pkg.rosters import (
-    AccountRoster, BenchmarkRoster, save_roster_file, load_roster_file,
+    AccountRoster, save_roster_file, load_roster_file,
     roster_to_json, roster_from_json, roster_from_dict,
 )
 from kingshot_sim.io_pkg.profiles import (

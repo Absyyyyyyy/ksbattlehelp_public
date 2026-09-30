@@ -15,23 +15,6 @@ def clear_no_session_storage() -> None:
     _thread_local.no_session = False
 
 
-def set_session_storage(enabled: bool) -> None:
-    if enabled:
-        os.environ["KS_SESSION_PROFILES"] = "1"
-        clear_no_session_storage()
-    else:
-        os.environ.pop("KS_SESSION_PROFILES", None)
-        clear_no_session_storage()
-
-
-def clear_session_storage() -> None:
-    try:
-        import streamlit as st
-        st.session_state.clear()
-    except Exception:
-        pass
-
-
 def _no_session_storage_here() -> bool:
     return getattr(_thread_local, "no_session", False)
 
@@ -79,6 +62,4 @@ __all__ = [
     "session_dict",
     "mark_no_session_storage",
     "clear_no_session_storage",
-    "set_session_storage",
-    "clear_session_storage",
 ]

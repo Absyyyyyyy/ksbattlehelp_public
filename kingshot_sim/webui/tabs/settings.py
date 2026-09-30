@@ -9,10 +9,10 @@ from kingshot_sim.webui import persistence, components
 from kingshot_sim.io_pkg import backup as backup_mod
 from kingshot_sim.io_pkg.rosters import AccountRoster
 from kingshot_sim.benchmark.runner import HeroBuild
-from kingshot_sim.config.fighter import BonusVector, HeroGearPiece
+from kingshot_sim.config.fighter import BonusVector
 from kingshot_sim.config.buffs import Buffs
 from kingshot_sim.data.reference import (
-    MYTHIC_HEROES, EPIC_HEROES, HERO_CLASS, HERO_GENERATION,
+    MYTHIC_HEROES, EPIC_HEROES, HERO_CLASS, HERO_GENERATION, MAX_GENERATION,
     default_skill_levels,
 )
 from kingshot_sim.webui.forms import (
@@ -24,25 +24,13 @@ from kingshot_sim.webui.forms import (
 def create_empty_roster(name: str = "New Profile") -> AccountRoster:
     return AccountRoster(
         name=name,
-        generation=8,
+        generation=MAX_GENERATION,
         owned_heroes={"Inf": [], "Cav": [], "Arc": []},
         builds={},
         class_gear={},
         bonuses=BonusVector(),
         buffs=Buffs(),
     )
-
-
-def load_active_roster(name: str) -> AccountRoster:
-    return persistence.load_roster(name)
-
-
-def save_active_roster(roster: AccountRoster, name: str) -> None:
-    persistence.save_roster(roster, name)
-
-
-def delete_active_roster(name: str) -> None:
-    persistence.delete_roster(name)
 
 
 def render() -> None:
@@ -293,8 +281,8 @@ def render_account_roster_section() -> None:
     gen_val = st.slider(
         "Hero Generation",
         min_value=1,
-        max_value=8,
-        value=max(1, min(8, int(roster_obj.generation))),
+        max_value=MAX_GENERATION,
+        value=max(1, min(MAX_GENERATION, int(roster_obj.generation))),
         key="settings_roster_generation",
         help="Include heroes up to this generation.",
     )
@@ -382,6 +370,11 @@ def render_account_roster_section() -> None:
                     widget_level=wdg_chosen,
                     skill_levels=sl_chosen,
                 )
+
+            # Keep owned heroes above the selected generation, like the Benchmark tab does.
+            collected_owned[klass] += [
+                h for h in roster_obj.owned_heroes.get(klass, []) if h not in avail_heroes
+            ]
 
     # Class Gear Editor
     st.markdown("---")

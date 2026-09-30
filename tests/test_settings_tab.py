@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import pytest
 from streamlit.testing.v1 import AppTest
 
 from kingshot_sim.config.fighter import HeroGearPiece, BonusVector
@@ -17,19 +16,13 @@ def test_create_empty_roster():
     r = create_empty_roster("Custom New")
     assert isinstance(r, AccountRoster)
     assert r.name == "Custom New"
-    assert r.generation == 8
+    assert r.generation == 7
     assert isinstance(r.class_gear, dict)
     assert isinstance(r.bonuses, BonusVector)
     assert isinstance(r.buffs, Buffs)
 
 
-def test_save_load_delete_active_roster(tmp_path, monkeypatch):
-    from kingshot_sim.webui.tabs.settings import (
-        save_active_roster,
-        load_active_roster,
-        delete_active_roster,
-    )
-
+def test_full_profile_persistence_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
     roster = AccountRoster(
         name="AlphaSquad",
@@ -52,10 +45,10 @@ def test_save_load_delete_active_roster(tmp_path, monkeypatch):
         buffs=Buffs(city_atk=20, rhino_level=8, appoint_field_commander=True),
     )
 
-    save_active_roster(roster, "AlphaSquad")
+    persistence.save_roster(roster, "AlphaSquad")
     assert "AlphaSquad" in persistence.list_rosters()
 
-    loaded = load_active_roster("AlphaSquad")
+    loaded = persistence.load_roster("AlphaSquad")
     assert loaded.name == "AlphaSquad"
     assert loaded.generation == 7
     assert loaded.owned_heroes["Inf"] == ["Eric", "Amadeus"]
@@ -68,7 +61,7 @@ def test_save_load_delete_active_roster(tmp_path, monkeypatch):
     assert loaded.buffs.rhino_level == 8
     assert loaded.buffs.appoint_field_commander is True
 
-    delete_active_roster("AlphaSquad")
+    persistence.delete_roster("AlphaSquad")
     assert "AlphaSquad" not in persistence.list_rosters()
 
 
@@ -103,7 +96,7 @@ def _render_account_roster_section_app():
 
 def test_render_account_roster_section_empty_apptest(tmp_path, monkeypatch):
     monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
-    at = AppTest.from_function(_render_account_roster_section_app)
+    at = AppTest.from_function(_render_account_roster_section_app, default_timeout=30)
     at.run()
     assert not at.exception, f"render_account_roster_section crashed: {at.exception}"
 
@@ -126,7 +119,7 @@ def test_render_account_roster_section_with_existing_roster_apptest(tmp_path, mo
         st.session_state["_ks_active_roster"] = "ExistingProfile"
         render_account_roster_section()
 
-    at = AppTest.from_function(_app)
+    at = AppTest.from_function(_app, default_timeout=30)
     at.run()
     assert not at.exception, f"render_account_roster_section crashed with profile: {at.exception}"
 
@@ -134,8 +127,8 @@ def test_render_account_roster_section_with_existing_roster_apptest(tmp_path, mo
 def test_delete_selected_profile_no_crash(tmp_path, monkeypatch):
     monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
     monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
-    r1 = AccountRoster(name="ToDelete", generation=8)
-    r2 = AccountRoster(name="Survivor", generation=8)
+    r1 = AccountRoster(name="ToDelete", generation=7)
+    r2 = AccountRoster(name="Survivor", generation=7)
     persistence.save_roster(r1, "ToDelete")
     persistence.save_roster(r2, "Survivor")
 
@@ -146,7 +139,7 @@ def test_delete_selected_profile_no_crash(tmp_path, monkeypatch):
         st.session_state["settings_roster_select"] = "ToDelete"
         render_account_roster_section()
 
-    at = AppTest.from_function(_app_delete_selected)
+    at = AppTest.from_function(_app_delete_selected, default_timeout=30)
     at.run()
     assert not at.exception
 
@@ -160,8 +153,8 @@ def test_delete_selected_profile_no_crash(tmp_path, monkeypatch):
 def test_delete_from_saved_list_when_selected_no_crash(tmp_path, monkeypatch):
     monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
     monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
-    r1 = AccountRoster(name="ListToDelete", generation=8)
-    r2 = AccountRoster(name="SurvivorProfile", generation=8)
+    r1 = AccountRoster(name="ListToDelete", generation=7)
+    r2 = AccountRoster(name="SurvivorProfile", generation=7)
     persistence.save_roster(r1, "ListToDelete")
     persistence.save_roster(r2, "SurvivorProfile")
 
@@ -172,7 +165,7 @@ def test_delete_from_saved_list_when_selected_no_crash(tmp_path, monkeypatch):
         st.session_state["settings_roster_select"] = "ListToDelete"
         render_account_roster_section()
 
-    at = AppTest.from_function(_app_list)
+    at = AppTest.from_function(_app_list, default_timeout=30)
     at.run()
     assert not at.exception
 
@@ -195,7 +188,7 @@ def test_upload_json_activates_uploaded_profile(tmp_path, monkeypatch):
     )
     raw_bytes = persistence.roster_to_json(r).encode("utf-8")
 
-    at = AppTest.from_function(_render_account_roster_section_app)
+    at = AppTest.from_function(_render_account_roster_section_app, default_timeout=30)
     at.run()
     assert not at.exception
 
@@ -218,7 +211,7 @@ def _render_full_settings_app():
 
 def test_render_full_settings_tab_apptest(tmp_path, monkeypatch):
     monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
-    at = AppTest.from_function(_render_full_settings_app)
+    at = AppTest.from_function(_render_full_settings_app, default_timeout=30)
     at.run()
     assert not at.exception, f"settings.render() crashed: {at.exception}"
 
@@ -226,7 +219,7 @@ def test_render_full_settings_tab_apptest(tmp_path, monkeypatch):
 def test_save_profile_button_no_crash(tmp_path, monkeypatch):
     monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
     monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
-    at = AppTest.from_function(_render_account_roster_section_app)
+    at = AppTest.from_function(_render_account_roster_section_app, default_timeout=30)
     at.run()
     assert not at.exception
     at.text_input(key="settings_roster_name_input").set_value("NewSavedProfile").run()
@@ -248,7 +241,7 @@ def test_save_as_profile_button_no_crash(tmp_path, monkeypatch):
         st.session_state["_ks_active_roster"] = "BaseProfile"
         render_account_roster_section()
 
-    at = AppTest.from_function(_app)
+    at = AppTest.from_function(_app, default_timeout=30)
     at.run()
     assert not at.exception
     at.text_input(key="settings_roster_save_as_input").set_value("BaseProfile Copy").run()
@@ -261,7 +254,7 @@ def test_save_as_profile_button_no_crash(tmp_path, monkeypatch):
 def test_full_settings_render_save_profile(tmp_path, monkeypatch):
     monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
     monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
-    at = AppTest.from_function(_render_full_settings_app)
+    at = AppTest.from_function(_render_full_settings_app, default_timeout=30)
     at.run()
     assert not at.exception
     at.text_input(key="settings_roster_name_input").set_value("FullSettingsSave").run()

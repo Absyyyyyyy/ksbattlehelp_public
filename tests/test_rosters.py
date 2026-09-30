@@ -1,8 +1,6 @@
 from pathlib import Path
-import pytest
 from kingshot_sim.io_pkg.rosters import (
     AccountRoster,
-    BenchmarkRoster,
     roster_to_dict,
     roster_from_dict,
     roster_to_json,
@@ -18,7 +16,7 @@ from kingshot_sim.benchmark.runner import HeroBuild
 def test_account_roster_v2_roundtrip():
     r = AccountRoster(
         name="Main Account",
-        generation=8,
+        generation=7,
         owned_heroes={"Inf": ["Jabel"], "Cav": ["Margot"], "Arc": ["Yang"]},
         builds={"Jabel": HeroBuild(level="MAX", widget_level=8, skill_levels=(5, 5, 5))},
         class_gear={"Inf": {"head": HeroGearPiece(slot="head", quality="red", level=100, enhance=5, forge_mastery=2)}},
@@ -28,7 +26,7 @@ def test_account_roster_v2_roundtrip():
     payload = roster_to_json(r)
     loaded = roster_from_json(payload)
     assert loaded.name == "Main Account"
-    assert loaded.generation == 8
+    assert loaded.generation == 7
     assert loaded.class_gear["Inf"]["head"].level == 100
     assert loaded.class_gear["Inf"]["head"].quality == "red"
     assert loaded.class_gear["Inf"]["head"].enhance == 5
@@ -61,13 +59,12 @@ def test_account_roster_v1_backward_compatibility():
     assert isinstance(loaded.buffs, Buffs)
     assert loaded.bonuses.squad_atk_pct == 0.0
     assert loaded.buffs.city_let == 0
-    assert BenchmarkRoster is AccountRoster
 
 
 def test_account_roster_defaults():
     r = AccountRoster(name="Default Account")
     assert r.name == "Default Account"
-    assert r.generation == 8
+    assert r.generation == 7
     assert r.owned_heroes == {}
     assert r.builds == {}
     assert r.class_gear == {}
@@ -78,7 +75,7 @@ def test_account_roster_defaults():
 def test_account_roster_file_io(tmp_path: Path):
     r = AccountRoster(
         name="File Account",
-        generation=8,
+        generation=7,
         owned_heroes={"Inf": ["Helga"]},
         builds={"Helga": HeroBuild(level="5_0", widget_level=0)},
         class_gear={
@@ -95,7 +92,7 @@ def test_account_roster_file_io(tmp_path: Path):
 
     loaded = load_roster_file(target_path)
     assert loaded.name == "File Account"
-    assert loaded.generation == 8
+    assert loaded.generation == 7
     assert loaded.builds["Helga"].level == "MAX"
     assert loaded.class_gear["Cav"]["chest"].quality == "mythic"
     assert loaded.bonuses.cav_atk_pct == 50.0
@@ -240,7 +237,7 @@ def test_account_roster_with_skill_levels():
 def test_account_roster_partial_bonuses_and_buffs():
     raw = {
         "name": "Partial Stats",
-        "generation": 8,
+        "generation": 7,
         "bonuses": {
             "squad_atk_pct": 55.5,
             "arc_hp_pct": 22.0,

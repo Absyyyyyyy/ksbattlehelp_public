@@ -10,7 +10,7 @@ def test_backup_payload_includes_rosters(tmp_path, monkeypatch):
     monkeypatch.setattr(ps, "_SEARCH_DIR", tmp_path / "searches")
     monkeypatch.setattr(ps, "_use_session_backend", lambda: False)
 
-    r = AccountRoster(name="BackupRosterTest", generation=8)
+    r = AccountRoster(name="BackupRosterTest", generation=7)
     ps.save_roster(r, "BackupRosterTest")
 
     payload = backup.build_backup_payload()
@@ -25,7 +25,7 @@ def test_backup_restore_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(ps, "_SEARCH_DIR", tmp_path / "searches")
     monkeypatch.setattr(ps, "_use_session_backend", lambda: False)
 
-    r = AccountRoster(name="RestoreMe", generation=8, owned_heroes={"Inf": ["Eric"]})
+    r = AccountRoster(name="RestoreMe", generation=7, owned_heroes={"Inf": ["Eric"]})
     ps.save_roster(r, "RestoreMe")
 
     blob = backup.make_backup_blob()
@@ -46,7 +46,7 @@ def test_backup_restore_roundtrip(tmp_path, monkeypatch):
 
     loaded = ps.load_roster("RestoreMe")
     assert loaded.name == "RestoreMe"
-    assert loaded.generation == 8
+    assert loaded.generation == 7
     assert loaded.owned_heroes == {"Inf": ["Eric"]}
 
 
@@ -59,7 +59,7 @@ def test_backup_restore_replace_existing_rosters(tmp_path, monkeypatch):
     old_r = AccountRoster(name="OldRoster", generation=5)
     ps.save_roster(old_r, "OldRoster")
 
-    new_r = AccountRoster(name="NewRoster", generation=8)
+    new_r = AccountRoster(name="NewRoster", generation=7)
     ps.save_roster(new_r, "NewRoster")
     blob = backup.make_backup_blob()
 

@@ -12,7 +12,6 @@ from ..data.reference import MYTHIC_HEROES, EPIC_HEROES, MAX_GENERATION, hero_cl
 from .profiles import HeroGearPieceSchema, BonusVectorSchema, BuffsSchema
 
 MIN_GENERATION: Final[int] = 1
-MAX_ROSTER_GENERATION: Final[int] = max(MAX_GENERATION, 8)
 ALL_HEROES: Final[frozenset[str]] = frozenset(MYTHIC_HEROES | EPIC_HEROES)
 _LEVEL_PATTERN = re.compile(r"^(?:MAX|[0-5]_[0-5])$")
 
@@ -20,16 +19,13 @@ _LEVEL_PATTERN = re.compile(r"^(?:MAX|[0-5]_[0-5])$")
 @dataclass
 class AccountRoster:
     name: str
-    generation: int = 8
+    generation: int = MAX_GENERATION
     owned_heroes: dict[str, list[str]] = field(default_factory=dict)
     builds: dict[str, HeroBuild] = field(default_factory=dict)
     class_gear: dict[str, dict[str, HeroGearPiece]] = field(default_factory=dict)
     bonuses: BonusVector = field(default_factory=BonusVector)
     buffs: Buffs = field(default_factory=Buffs)
 
-
-# Backward-compatible alias for existing imports
-BenchmarkRoster = AccountRoster
 
 
 def _safe_star_subtier_from_level(level: str) -> tuple[int, int]:
@@ -177,11 +173,11 @@ def roster_from_dict(data: dict[str, Any]) -> AccountRoster:
     raw_gen = data.get("generation")
     if raw_gen is not None:
         try:
-            gen = max(MIN_GENERATION, min(int(raw_gen), MAX_ROSTER_GENERATION))
+            gen = max(MIN_GENERATION, min(int(raw_gen), MAX_GENERATION))
         except (TypeError, ValueError):
-            gen = 8
+            gen = MAX_GENERATION
     else:
-        gen = 8
+        gen = MAX_GENERATION
 
     owned_heroes: dict[str, list[str]] = {}
     raw_owned = data.get("owned_heroes")
@@ -280,7 +276,6 @@ def load_roster_file(path: str | Path) -> AccountRoster:
 
 __all__ = [
     "AccountRoster",
-    "BenchmarkRoster",
     "roster_to_dict",
     "roster_from_dict",
     "roster_to_json",

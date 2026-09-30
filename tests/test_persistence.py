@@ -11,7 +11,7 @@ def test_persistence_roster_roundtrip(tmp_path, monkeypatch):
 
     r = AccountRoster(
         name="PersistTest",
-        generation=8,
+        generation=7,
         owned_heroes={"Inf": ["Eric", "Howard"]},
         builds={"Eric": HeroBuild(level="MAX", widget_level=10)},
         bonuses=BonusVector(squad_atk_pct=15.0),
@@ -22,7 +22,7 @@ def test_persistence_roster_roundtrip(tmp_path, monkeypatch):
 
     loaded = ps.load_roster("PersistTest")
     assert loaded.name == "PersistTest"
-    assert loaded.generation == 8
+    assert loaded.generation == 7
     assert loaded.owned_heroes == {"Inf": ["Eric", "Howard"]}
     assert loaded.builds["Eric"].widget_level == 10
     assert loaded.bonuses.squad_atk_pct == 15.0
@@ -58,7 +58,7 @@ def test_persistence_roster_export_dict(tmp_path, monkeypatch):
     monkeypatch.setattr(ps, "_use_session_backend", lambda: False)
 
     r1 = AccountRoster(name="Roster1", generation=6)
-    r2 = AccountRoster(name="Roster2", generation=8)
+    r2 = AccountRoster(name="Roster2", generation=7)
     ps.save_roster(r1, "Roster1")
     ps.save_roster(r2, "Roster2")
 
@@ -92,14 +92,14 @@ def test_persistence_import_roster_blob(tmp_path, monkeypatch):
         "version": 2,
         "format": "ksbattlehelper-roster",
         "name": "DictRoster",
-        "generation": 8,
+        "generation": 7,
         "owned_heroes": {"Inf": ["Eric"]},
     }
     ps.import_roster_blob("DictRoster", dict_payload)
     assert "DictRoster" in ps.list_rosters()
     loaded_dict = ps.load_roster("DictRoster")
     assert loaded_dict.name == "DictRoster"
-    assert loaded_dict.generation == 8
+    assert loaded_dict.generation == 7
     assert loaded_dict.owned_heroes == {"Inf": ["Eric"]}
 
     # 2. Test with json string payload
