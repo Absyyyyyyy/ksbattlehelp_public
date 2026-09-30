@@ -347,7 +347,7 @@ def _joiner_grid(side: str, sd: dict, gen: int, accent: str) -> None:
                     st.markdown(_portrait_block(hero, hero_class(hero), 44),
                                 unsafe_allow_html=True)
                     if st.button("Remove", key=f"sm_{side}_rm_{i}",
-                                 type="primary", use_container_width=True):
+                                 type="primary", width="stretch"):
                         sd["joiners"].pop(i)
                         st.rerun()
         else:
@@ -390,7 +390,7 @@ def _joiner_grid(side: str, sd: dict, gen: int, accent: str) -> None:
                                 unsafe_allow_html=True)
                     if st.button("Add", key=f"sm_{side}_jb_{hero}",
                                  type="primary" if cnt else "secondary",
-                                 use_container_width=True, disabled=full,
+                                 width="stretch", disabled=full,
                                  help=_joiner_effect_text(hero)):
                         if len(sd["joiners"]) < 4:
                             sd["joiners"].append(hero)
@@ -541,7 +541,7 @@ def _side_switcher() -> None:
     for col, key, label in ((c1, "off", "OFFENSIVE RALLY"),
                             (c2, "def", "DEFENSIVE GARRISON")):
         with col:
-            if st.button(label, key=f"sm_switch_{key}", use_container_width=True,
+            if st.button(label, key=f"sm_switch_{key}", width="stretch",
                          type="primary" if ss["sm_active"] == key else "secondary"):
                 ss["sm_active"] = key
                 st.rerun()
