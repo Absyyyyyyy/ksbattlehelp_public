@@ -339,13 +339,13 @@ def _render_candidate_profile_toolbar(cfg: _ModeCfg) -> tuple[bool, bool, str | 
             base_space = st.session_state.get(f"{prefix}_space", _default_space())
             new_space = roster_to_search_space(roster, base=base_space)
             st.session_state[f"{prefix}_space"] = new_space
-            st.session_state["_ks_active_roster"] = roster.name
-            st.session_state[f"{prefix}_active_profile_loaded"] = roster.name
-            st.session_state[f"{prefix}_synced_active"] = roster.name
+            st.session_state["_ks_active_roster"] = selected_profile
+            st.session_state[f"{prefix}_active_profile_loaded"] = selected_profile
+            st.session_state[f"{prefix}_synced_active"] = selected_profile
             st.session_state[f"{prefix}_example_banner_dismissed"] = True
             _clear_and_rehydrate_space_widgets(sp, new_space)
             if reload_clicked:
-                st.success(f"Profile '{roster.name}' reloaded successfully.")
+                st.success(f"Profile '{selected_profile}' reloaded successfully.")
         except Exception as e:
             st.error(f"Failed to load profile '{selected_profile}': {e}")
 
@@ -607,11 +607,8 @@ def _render_body(cfg: _ModeCfg) -> None:
             try:
                 roster = persistence.load_roster(selected_profile)
                 updated_roster = update_roster_from_search_space(roster, space)
-                persistence.save_roster(updated_roster, updated_roster.name)
-                st.session_state["_ks_active_roster"] = updated_roster.name
-                st.session_state[f"{prefix}_active_profile_loaded"] = updated_roster.name
-                st.session_state[f"{prefix}_synced_active"] = updated_roster.name
-                st.success(f"Profile '{updated_roster.name}' saved back to profile!")
+                persistence.save_roster(updated_roster, selected_profile)
+                st.success(f"Saved your candidate roster to '{selected_profile}'.")
             except Exception as e:
                 st.error(f"Failed to save profile '{selected_profile}': {e}")
 
