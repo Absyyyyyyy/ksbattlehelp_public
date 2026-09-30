@@ -36,7 +36,6 @@ _EXCLUDED_KEY_SUBSTRINGS: tuple[str, ...] = (
     "_reset_",
     "_bm_run",
     "_bm_ocr_",
-    "_bm_import_",
     "_bm_preset_",
 )
 

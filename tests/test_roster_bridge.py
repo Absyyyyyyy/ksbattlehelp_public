@@ -1,5 +1,4 @@
 import pytest
-import streamlit as st
 
 from kingshot_sim.io_pkg.rosters import AccountRoster
 from kingshot_sim.benchmark.runner import HeroBuild
@@ -12,8 +11,7 @@ from kingshot_sim.io_pkg.roster_bridge import (
     roster_to_search_space,
     update_roster_from_search_space,
     roster_to_fighter,
-    apply_roster_to_benchmark,
-    extract_roster_from_benchmark,
+    merge_benchmark_into_roster,
 )
 
 
@@ -188,11 +186,8 @@ def test_roster_to_fighter_invalid_classes():
         roster_to_fighter(r, inf_hero="Margot", cav_hero="Margot", arc_hero="Yang")
 
 
-def test_benchmark_synchronization(monkeypatch):
-    mock_ss: dict = {}
-    monkeypatch.setattr(st, "session_state", mock_ss)
-
-    r = AccountRoster(
+def _profile_with_account_data() -> AccountRoster:
+    return AccountRoster(
         name="Sync Profile",
         generation=7,
         owned_heroes={"Inf": ["Amadeus"], "Cav": ["Margot"], "Arc": ["Yang"]},
@@ -205,30 +200,47 @@ def test_benchmark_synchronization(monkeypatch):
         buffs=Buffs(city_atk=10),
     )
 
-    apply_roster_to_benchmark(r)
-    assert mock_ss["_bm_master_gen"] == 7
-    assert mock_ss["_bm_gen"] == 7
-    assert "Amadeus" in mock_ss["_bm_own_Inf"]
-    assert mock_ss["_bm_star_Amadeus"] == 5
-    assert mock_ss["_bm_wl_Amadeus"] == 9
-    assert mock_ss["_bm_star_Margot"] == 4
-    assert mock_ss["_bm_tier_Margot"] == 2
-    assert mock_ss["_bm_wl_Margot"] == 5
 
-    # Simulate user tweaking values in benchmark tab
-    mock_ss["_bm_wl_Amadeus"] = 10
-    mock_ss["_bm_star_Margot"] = 5
-    mock_ss["_bm_tier_Margot"] = 0
-    mock_ss["_bm_master_gen"] = 8
+def test_merge_benchmark_into_roster_applies_edits():
+    r = _profile_with_account_data()
+    merged = merge_benchmark_into_roster(
+        r,
+        generation=5,
+        owned_heroes={"Inf": ["Amadeus", "Helga"], "Cav": ["Margot"], "Arc": ["Yang"]},
+        builds={
+            "Amadeus": HeroBuild(level="MAX", widget_level=10),
+            "Margot": HeroBuild(level="MAX", widget_level=6),
+            "Helga": HeroBuild(level="3_1", widget_level=4),
+        },
+    )
+    assert merged.name == "Sync Profile"
+    assert merged.generation == 5
+    assert merged.owned_heroes["Inf"] == ["Amadeus", "Helga"]
+    assert merged.builds["Amadeus"].widget_level == 10
+    assert merged.builds["Margot"].level == "MAX"
+    assert merged.builds["Helga"] == HeroBuild(level="3_1", widget_level=4)
 
-    extracted = extract_roster_from_benchmark(r)
-    assert extracted.name == "Sync Profile"
-    assert extracted.generation == 8
-    assert extracted.builds["Amadeus"].widget_level == 10
-    assert extracted.builds["Amadeus"].skill_levels == (5, 4, 3)
-    assert extracted.builds["Margot"].level == "MAX"
-    assert extracted.class_gear["Inf"]["head"].level == 60
-    assert extracted.bonuses.squad_atk_pct == 100.0
+
+def test_merge_benchmark_into_roster_keeps_account_data():
+    r = _profile_with_account_data()
+    merged = merge_benchmark_into_roster(
+        r, generation=7, owned_heroes=r.owned_heroes,
+        builds={"Amadeus": HeroBuild(level="MAX", widget_level=10)},
+    )
+    assert merged.builds["Amadeus"].skill_levels == (5, 4, 3)
+    assert merged.builds["Margot"] == r.builds["Margot"]
+    assert merged.class_gear["Inf"]["head"].level == 60
+    assert merged.bonuses.squad_atk_pct == 100.0
+    assert merged.buffs.city_atk == 10
+
+
+def test_merge_benchmark_into_roster_caps_skills_at_new_star():
+    r = _profile_with_account_data()
+    merged = merge_benchmark_into_roster(
+        r, generation=7, owned_heroes=r.owned_heroes,
+        builds={"Amadeus": HeroBuild(level="1_0", widget_level=9)},
+    )
+    assert merged.builds["Amadeus"].skill_levels == (2, 2, 0)
 
 
 def test_roster_to_search_space_fallback_to_base_mythics():
@@ -268,28 +280,10 @@ def test_roster_to_fighter_defaults():
     assert fighter.leader_inf.widget_level == 10
 
 
-def test_extract_roster_from_benchmark_without_session_state(monkeypatch):
-    class NoSessionState:
-        @property
-        def session_state(self):
-            raise RuntimeError("Streamlit not running")
-
-    monkeypatch.setattr(st, "session_state", NoSessionState())
-    r = AccountRoster(
-        name="No SS",
-        owned_heroes={"Inf": ["Amadeus"]},
-        bonuses=BonusVector(inf_atk_pct=25.0),
-    )
-    extracted = extract_roster_from_benchmark(r)
-    assert extracted.name == "No SS"
-    assert extracted.owned_heroes == {"Inf": ["Amadeus"]}
-    assert extracted.bonuses.inf_atk_pct == 25.0
-
-
 def test_roundtrip_search_space_consistency():
     r = AccountRoster(
         name="Roundtrip",
-        generation=8,
+        generation=7,
         owned_heroes={"Inf": ["Amadeus", "Helga"], "Cav": ["Margot", "Jabel"], "Arc": ["Yang"]},
         builds={
             "Amadeus": HeroBuild(level="MAX", widget_level=10, skill_levels=(5, 5, 5)),

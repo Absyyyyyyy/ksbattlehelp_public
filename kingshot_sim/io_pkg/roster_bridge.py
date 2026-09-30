@@ -4,35 +4,16 @@ from dataclasses import replace
 
 from .rosters import AccountRoster
 from ..benchmark.runner import HeroBuild
-from ..config.fighter import (
-    Fighter,
-    LeaderHero,
-    JoinerHero,
-    TroopRoster,
-    BonusVector,
-    HeroGearPiece,
-)
-from ..config.buffs import Buffs
+from ..config.fighter import Fighter, LeaderHero, JoinerHero, TroopRoster
 from ..optimizer.search_space import SearchSpace, TroopPool, LeaderSpec
 from ..data.reference import (
     MYTHIC_HEROES,
     EPIC_HEROES,
     HERO_CLASS,
     NON_COMBAT_FIRST_SKILL_HEROES,
+    default_skill_levels,
     hero_class,
 )
-
-
-def _safe_star_subtier(level: str) -> tuple[int, int]:
-    if level == "MAX":
-        return 5, 0
-    if "_" in level:
-        parts = level.split("_")
-        try:
-            return max(0, min(5, int(parts[0]))), max(0, min(5, int(parts[1])))
-        except (ValueError, IndexError):
-            pass
-    return 5, 0
 
 
 def roster_to_search_space(
@@ -278,111 +259,30 @@ def roster_to_fighter(
     )
 
 
-def apply_roster_to_benchmark(roster: AccountRoster) -> None:
-    """Hydrate Benchmark tab session state from an AccountRoster."""
-    try:
-        import streamlit as st
-        ss = st.session_state
-        if ss is None or not hasattr(ss, "__setitem__"):
-            return
-    except Exception:
-        return
+def merge_benchmark_into_roster(
+    roster: AccountRoster,
+    generation: int,
+    owned_heroes: dict[str, list[str]],
+    builds: dict[str, HeroBuild],
+) -> AccountRoster:
+    """Apply the Benchmark tab's edits (generation, owned heroes, stars/widgets) to a roster.
 
-    ss["_bm_master_gen"] = roster.generation
-    ss["_bm_gen"] = roster.generation
-    ss["_bm_master_builds"] = dict(roster.builds)
-
-    for cls in ("Inf", "Cav", "Arc"):
-        owned = list(roster.owned_heroes.get(cls, []))
-        ss[f"_bm_own_{cls}"] = owned
-        ss[f"_bm_own_{cls}_{roster.generation}"] = owned
-
-    for h, b in roster.builds.items():
-        star, sub_tier = _safe_star_subtier(b.level)
-        ss[f"_bm_star_{h}"] = star
-        ss[f"_bm_tier_{h}"] = sub_tier
-        ss[f"_bm_wl_{h}"] = b.widget_level
-        ss[f"_bm_star_{h}_{roster.generation}"] = star
-        ss[f"_bm_tier_{h}_{roster.generation}"] = sub_tier
-        ss[f"_bm_wl_{h}_{roster.generation}"] = b.widget_level
-
-    ss["_bm_class_gear"] = {cls: dict(slots) for cls, slots in roster.class_gear.items()}
-    ss["_bm_bonuses"] = replace(roster.bonuses)
-    ss["_bm_buffs"] = replace(roster.buffs)
-    ss["_bm_active_roster"] = roster.name
-    ss["_ks_active_roster"] = roster.name
-
-
-def extract_roster_from_benchmark(roster: AccountRoster) -> AccountRoster:
-    """Extract modified hero builds and owned states from Benchmark session state."""
-    try:
-        import streamlit as st
-        ss = st.session_state
-        if ss is None or not hasattr(ss, "get"):
-            ss = None
-    except Exception:
-        ss = None
-
-    if ss is None:
-        return AccountRoster(
-            name=roster.name,
-            generation=roster.generation,
-            owned_heroes={cls: list(h) for cls, h in roster.owned_heroes.items()},
-            builds=dict(roster.builds),
-            class_gear={cls: dict(slots) for cls, slots in roster.class_gear.items()},
-            bonuses=replace(roster.bonuses),
-            buffs=replace(roster.buffs),
-        )
-
-    gen = int(ss.get("_bm_master_gen", ss.get("_bm_gen", roster.generation)))
-
-    new_owned: dict[str, list[str]] = {}
-    for cls in ("Inf", "Cav", "Arc"):
-        owned = ss.get(f"_bm_own_{cls}_{gen}", ss.get(f"_bm_own_{cls}"))
-        if owned is not None:
-            new_owned[cls] = [h for h in owned if hero_class(h) == cls]
-        else:
-            new_owned[cls] = list(roster.owned_heroes.get(cls, []))
-
+    The Benchmark tab doesn't edit skills, class gear, bonuses or buffs, so those are
+    carried over from ``roster``. Kept skill levels are capped at what the new star allows.
+    """
     new_builds = dict(roster.builds)
-    if "_bm_master_builds" in ss and isinstance(ss["_bm_master_builds"], dict):
-        for h, b in ss["_bm_master_builds"].items():
-            if isinstance(b, HeroBuild):
-                new_builds[h] = b
-
-    for cls in ("Inf", "Cav", "Arc"):
-        for h in new_owned.get(cls, []):
-            has_star = f"_bm_star_{h}_{gen}" in ss or f"_bm_star_{h}" in ss
-            has_tier = f"_bm_tier_{h}_{gen}" in ss or f"_bm_tier_{h}" in ss
-            has_wl = f"_bm_wl_{h}_{gen}" in ss or f"_bm_wl_{h}" in ss
-            if has_star or has_tier or has_wl:
-                star = ss.get(f"_bm_star_{h}_{gen}", ss.get(f"_bm_star_{h}", 5))
-                tier = ss.get(f"_bm_tier_{h}_{gen}", ss.get(f"_bm_tier_{h}", 0))
-                default_wl = 0 if h in EPIC_HEROES else 4
-                wl = ss.get(f"_bm_wl_{h}_{gen}", ss.get(f"_bm_wl_{h}", default_wl))
-                level = "MAX" if int(star) >= 5 else f"{int(star)}_{int(tier)}"
-                existing_skills = new_builds[h].skill_levels if h in new_builds else None
-                new_builds[h] = HeroBuild(
-                    level=level,
-                    widget_level=int(wl),
-                    skill_levels=existing_skills,
-                )
-
-    new_gear = ss.get(
-        "_bm_class_gear",
-        {cls: dict(slots) for cls, slots in roster.class_gear.items()},
-    )
-    new_bonuses = ss.get("_bm_bonuses", replace(roster.bonuses))
-    new_buffs = ss.get("_bm_buffs", replace(roster.buffs))
-
-    return AccountRoster(
-        name=roster.name,
-        generation=gen,
-        owned_heroes=new_owned,
+    for h, b in builds.items():
+        prev = roster.builds.get(h)
+        skills = prev.skill_levels if prev is not None else b.skill_levels
+        if skills is not None:
+            cap = default_skill_levels(b.level)
+            skills = (min(skills[0], cap[0]), min(skills[1], cap[1]), min(skills[2], cap[2]))
+        new_builds[h] = replace(b, skill_levels=skills)
+    return replace(
+        roster,
+        generation=generation,
+        owned_heroes={cls: list(heroes) for cls, heroes in owned_heroes.items()},
         builds=new_builds,
-        class_gear={cls: dict(slots) for cls, slots in new_gear.items()} if isinstance(new_gear, dict) else {},
-        bonuses=replace(new_bonuses) if isinstance(new_bonuses, BonusVector) else BonusVector(),
-        buffs=replace(new_buffs) if isinstance(new_buffs, Buffs) else Buffs(),
     )
 
 
@@ -390,6 +290,5 @@ __all__ = [
     "roster_to_search_space",
     "update_roster_from_search_space",
     "roster_to_fighter",
-    "apply_roster_to_benchmark",
-    "extract_roster_from_benchmark",
+    "merge_benchmark_into_roster",
 ]

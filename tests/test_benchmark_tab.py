@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from streamlit.testing.v1 import AppTest
 
 from kingshot_sim.config.fighter import HeroGearPiece, BonusVector
@@ -44,185 +43,176 @@ def _render_benchmark_app():
     render()
 
 
-def test_benchmark_toolbar_empty_rosters_no_crash(tmp_path, monkeypatch):
-    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
-    at = AppTest.from_function(_render_benchmark_app)
+def _bench() -> AppTest:
+    at = AppTest.from_function(_render_benchmark_app, default_timeout=30)
     at.run()
     assert not at.exception
+    return at
 
 
-def test_benchmark_toolbar_profile_selection_and_reload(tmp_path, monkeypatch):
+def _use_disk(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
     monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
 
-    r_alpha = AccountRoster(
+
+def _alpha() -> AccountRoster:
+    return AccountRoster(
         name="ProfileAlpha",
         generation=7,
         owned_heroes={"Inf": ["Eric"], "Cav": ["Petra"], "Arc": ["Jaeger"]},
         builds={
-            "Eric": HeroBuild(level="4_2", widget_level=5),
+            "Eric": HeroBuild(level="4_2", widget_level=5, skill_levels=(5, 3, 2)),
             "Petra": HeroBuild(level="MAX", widget_level=8),
         },
         class_gear={"Inf": {"head": HeroGearPiece(slot="head", quality="mythic", level=30)}},
         bonuses=BonusVector(inf_atk_pct=50.0),
         buffs=Buffs(city_atk=10),
     )
-    r_beta = AccountRoster(
+
+
+def test_benchmark_toolbar_empty_rosters_no_crash(tmp_path, monkeypatch):
+    _use_disk(tmp_path, monkeypatch)
+    at = _bench()
+    assert not [b for b in at.button if b.key == "benchmark_save_roster_btn"]
+
+
+def test_benchmark_loads_selected_profile_into_widgets(tmp_path, monkeypatch):
+    _use_disk(tmp_path, monkeypatch)
+    persistence.save_roster(_alpha(), "ProfileAlpha")
+    persistence.save_roster(AccountRoster(
         name="ProfileBeta",
         generation=6,
-        owned_heroes={"Inf": ["Amadeus"], "Cav": ["Margot"], "Arc": ["Ahab"]},
-        builds={
-            "Amadeus": HeroBuild(level="MAX", widget_level=10),
-        },
-    )
-    persistence.save_roster(r_alpha, "ProfileAlpha")
-    persistence.save_roster(r_beta, "ProfileBeta")
+        owned_heroes={"Inf": ["Amadeus"], "Cav": ["Margot"], "Arc": ["Jaeger"]},
+        builds={"Amadeus": HeroBuild(level="MAX", widget_level=10)},
+    ), "ProfileBeta")
 
-    at = AppTest.from_function(_render_benchmark_app)
-    at.run()
+    at = _bench()
+    assert at.selectbox(key="benchmark_roster_select").value == "ProfileAlpha"
+    assert at.select_slider(key="_bm_gen").value == 7
+    assert at.number_input(key="_bm_star_Eric").value == 4
+    assert at.number_input(key="_bm_tier_Eric").value == 2
+    assert at.slider(key="_bm_wl_Eric").value == 5
+
+    at.selectbox(key="benchmark_roster_select").select("ProfileBeta").run()
+    assert not at.exception
+    assert at.select_slider(key="_bm_gen").value == 6
+    assert at.multiselect(key="_bm_own_Inf").value == ["Amadeus"]
+    assert at.slider(key="_bm_wl_Amadeus").value == 10
+    assert at.session_state["_ks_active_roster"] == "ProfileBeta"
+
+
+def test_benchmark_save_back_writes_widget_edits(tmp_path, monkeypatch):
+    _use_disk(tmp_path, monkeypatch)
+    persistence.save_roster(_alpha(), "ProfileAlpha")
+    at = _bench()
+
+    at.number_input(key="_bm_star_Eric").set_value(3).run()
+    at.number_input(key="_bm_tier_Eric").set_value(1).run()
+    at.slider(key="_bm_wl_Eric").set_value(1).run()
+    extra = [h for h in at.multiselect(key="_bm_own_Inf").options if h != "Eric"][0]
+    at.multiselect(key="_bm_own_Inf").select(extra).run()
     assert not at.exception
 
-    # Select ProfileAlpha and click reload
-    at.selectbox(key="benchmark_roster_select").select("ProfileAlpha").run()
+    # Edits stay local until saved back.
+    assert persistence.load_roster("ProfileAlpha").builds["Eric"].level == "4_2"
+
+    at.button(key="benchmark_save_roster_btn").click().run()
     assert not at.exception
-    at.button(key="benchmark_reload_roster_btn").click().run()
-    assert not at.exception
-
-    assert at.session_state["_ks_active_roster"] == "ProfileAlpha"
-    assert at.session_state["_bm_gen"] == 7
-    assert at.session_state["_bm_star_Eric_7"] == 4
-    assert at.session_state["_bm_tier_Eric_7"] == 2
-    assert at.session_state["_bm_wl_Eric_7"] == 5
-    assert at.session_state["_bm_class_gear"]["Inf"]["head"].level == 30
+    saved = persistence.load_roster("ProfileAlpha")
+    assert saved.builds["Eric"].level == "3_1"
+    assert saved.builds["Eric"].widget_level == 1
+    assert saved.owned_heroes["Inf"] == ["Eric", extra]
 
 
-def test_benchmark_local_overrides_non_destructive_until_save_back(tmp_path, monkeypatch):
-    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
-    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+def test_benchmark_save_back_keeps_account_data(tmp_path, monkeypatch):
+    _use_disk(tmp_path, monkeypatch)
+    persistence.save_roster(_alpha(), "ProfileAlpha")
+    at = _bench()
 
-    original = AccountRoster(
-        name="OriginalProfile",
-        generation=7,
-        owned_heroes={"Inf": ["Eric"], "Cav": ["Petra"], "Arc": ["Jaeger"]},
-        builds={
-            "Eric": HeroBuild(level="MAX", widget_level=4),
-        },
-    )
-    persistence.save_roster(original, "OriginalProfile")
-
-    def _app():
-        import streamlit as st
-        from kingshot_sim.webui.tabs.benchmark import render
-        st.session_state["_ks_active_roster"] = "OriginalProfile"
-        render()
-
-    at = AppTest.from_function(_app)
-    at.run()
-    assert not at.exception
-
-    # Initially loaded as active profile
-    assert at.session_state["_bm_gen"] == 7
-
-    # Apply local override in session state (e.g. user changes Eric stars and widgets in tab)
-    at.session_state["_bm_star_Eric_7"] = 3
-    at.session_state["_bm_tier_Eric_7"] = 0
-    at.session_state["_bm_wl_Eric_7"] = 1
-    at.run()
-    assert not at.exception
-
-    # Verify disk profile is completely unchanged (non-destructive)
-    disk_roster = persistence.load_roster("OriginalProfile")
-    assert disk_roster.builds["Eric"].level == "MAX"
-    assert disk_roster.builds["Eric"].widget_level == 4
-
-    # Now click "Save Changes Back to Profile"
+    at.slider(key="_bm_wl_Eric").set_value(9).run()
     at.button(key="benchmark_save_roster_btn").click().run()
     assert not at.exception
 
-    # Saved profile on disk must now reflect the local overrides
-    updated_disk_roster = persistence.load_roster("OriginalProfile")
-    assert updated_disk_roster.builds["Eric"].level == "3_0"
-    assert updated_disk_roster.builds["Eric"].widget_level == 1
+    saved = persistence.load_roster("ProfileAlpha")
+    assert saved.builds["Eric"].widget_level == 9
+    assert saved.builds["Eric"].skill_levels == (5, 3, 2)
+    assert saved.class_gear["Inf"]["head"].level == 30
+    assert saved.bonuses.inf_atk_pct == 50.0
+    assert saved.buffs.city_atk == 10
+
+
+def test_benchmark_save_back_keeps_heroes_above_generation(tmp_path, monkeypatch):
+    _use_disk(tmp_path, monkeypatch)
+    persistence.save_roster(AccountRoster(
+        name="Late", generation=7,
+        owned_heroes={"Inf": ["Eric", "Charles"], "Cav": ["Petra"], "Arc": ["Jaeger"]},
+        builds={"Charles": HeroBuild(level="3_2", widget_level=6)},
+    ), "Late")
+    at = _bench()
+
+    at.select_slider(key="_bm_gen").set_value(1).run()
+    assert "Charles" not in at.multiselect(key="_bm_own_Inf").options
+    at.button(key="benchmark_save_roster_btn").click().run()
+    assert not at.exception
+
+    saved = persistence.load_roster("Late")
+    assert saved.generation == 1
+    assert "Charles" in saved.owned_heroes["Inf"]
+    assert saved.builds["Charles"] == HeroBuild(level="3_2", widget_level=6)
+
+
+def test_benchmark_edits_survive_reruns_with_spaced_profile_name(tmp_path, monkeypatch):
+    # "New Profile" is stored as New_Profile.json; the tab must not reload it on every rerun.
+    _use_disk(tmp_path, monkeypatch)
+    persistence.save_roster(AccountRoster(
+        name="New Profile", generation=7,
+        owned_heroes={"Inf": ["Eric"], "Cav": ["Petra"], "Arc": ["Jaeger"]},
+        builds={"Eric": HeroBuild(level="MAX", widget_level=4)},
+    ), "New Profile")
+    at = _bench()
+
+    at.number_input(key="_bm_star_Eric").set_value(3).run()
+    at.run()
+    assert at.number_input(key="_bm_star_Eric").value == 3
+
+    at.button(key="benchmark_save_roster_btn").click().run()
+    assert persistence.list_rosters() == ["New_Profile"]
+    assert persistence.load_roster("New_Profile").builds["Eric"].level.startswith("3_")
 
 
 def test_benchmark_reload_reverts_local_overrides(tmp_path, monkeypatch):
-    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
-    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
+    _use_disk(tmp_path, monkeypatch)
+    persistence.save_roster(_alpha(), "ProfileAlpha")
+    at = _bench()
 
-    roster = AccountRoster(
-        name="RevertProfile",
-        generation=7,
-        owned_heroes={"Inf": ["Eric"], "Cav": ["Petra"], "Arc": ["Jaeger"]},
-        builds={
-            "Eric": HeroBuild(level="MAX", widget_level=4),
-        },
-    )
-    persistence.save_roster(roster, "RevertProfile")
-
-    def _app():
-        import streamlit as st
-        from kingshot_sim.webui.tabs.benchmark import render
-        st.session_state["_ks_active_roster"] = "RevertProfile"
-        render()
-
-    at = AppTest.from_function(_app)
-    at.run()
-    assert not at.exception
-
-    # Mutate in session state
-    at.session_state["_bm_star_Eric_7"] = 2
-    at.session_state["_bm_tier_Eric_7"] = 1
-    at.session_state["_bm_wl_Eric_7"] = 9
-    at.run()
-    assert at.session_state["_bm_star_Eric_7"] == 2
-
-    # Click Reload
+    at.number_input(key="_bm_star_Eric").set_value(2).run()
+    at.slider(key="_bm_wl_Eric").set_value(9).run()
     at.button(key="benchmark_reload_roster_btn").click().run()
     assert not at.exception
 
-    # Should be reverted back to 5 stars (MAX) and widget 4
-    assert at.session_state["_bm_star_Eric_7"] == 5
-    assert at.session_state["_bm_tier_Eric_7"] == 0
-    assert at.session_state["_bm_wl_Eric_7"] == 4
+    assert at.number_input(key="_bm_star_Eric").value == 4
+    assert at.number_input(key="_bm_tier_Eric").value == 2
+    assert at.slider(key="_bm_wl_Eric").value == 5
 
 
-def test_benchmark_analyse_with_class_gear(tmp_path, monkeypatch):
-    monkeypatch.setenv("KS_PERSIST_TO_DISK", "1")
-    monkeypatch.setattr(persistence, "_ROSTERS_DIR", tmp_path / "rosters")
-
-    roster = AccountRoster(
-        name="GearAnalysisProfile",
+def test_benchmark_analyse_uses_profile_class_gear(tmp_path, monkeypatch):
+    _use_disk(tmp_path, monkeypatch)
+    base = dict(
         generation=3,
         owned_heroes={"Inf": ["Eric"], "Cav": ["Petra"], "Arc": ["Jaeger"]},
-        builds={
-            "Eric": HeroBuild(level="MAX", widget_level=4),
-            "Petra": HeroBuild(level="MAX", widget_level=4),
-            "Jaeger": HeroBuild(level="MAX", widget_level=4),
-        },
-        class_gear={
-            "Cav": {
-                "boots": HeroGearPiece(slot="boots", quality="red", level=100, forge_mastery=10),
-            }
-        },
+        builds={h: HeroBuild(level="MAX", widget_level=4) for h in ("Eric", "Petra", "Jaeger")},
     )
-    persistence.save_roster(roster, "GearAnalysisProfile")
+    red = HeroGearPiece(slot="boots", quality="red", level=100, forge_mastery=10)
+    persistence.save_roster(AccountRoster(name="Geared", class_gear={"Cav": {"boots": red}}, **base), "Geared")
+    persistence.save_roster(AccountRoster(name="Plain", **base), "Plain")
 
-    def _app():
-        import streamlit as st
-        from kingshot_sim.webui.tabs.benchmark import render
-        st.session_state["_ks_active_roster"] = "GearAnalysisProfile"
-        render()
+    def petra_solo_atk(profile: str) -> float:
+        at = _bench()
+        at.selectbox(key="benchmark_roster_select").select(profile).run()
+        at.button(key="_bm_run").click().run()
+        assert not at.exception
+        rgen, _, cur = at.session_state["_bm_result"]
+        assert rgen == 3
+        return cur.per_hero["solo_atk"]["Petra"]
 
-    at = AppTest.from_function(_app)
-    at.run()
-    assert not at.exception
-    assert at.session_state.get("_bm_class_gear") is not None
-
-    # Click Analyse my roster button
-    at.button(key="_bm_run").click().run()
-    assert not at.exception
-    assert "_bm_result" in at.session_state
-    rgen, rbuilds, cur = at.session_state["_bm_result"]
-    assert rgen == 3
-    assert "Petra" in cur.per_hero["solo_atk"]
-
+    assert petra_solo_atk("Geared") > petra_solo_atk("Plain")
